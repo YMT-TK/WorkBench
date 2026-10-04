@@ -29,13 +29,36 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "category": "Utility",
-    "shortDescription": "桌面工作台",
-    "longDescription": "插件化桌面工作台：数据中心卡片 + 项目管理 + 音频管理",
+    "targets": ["nsis"],
+    "publisher": "YMT-TK",
+    "copyright": "Copyright © 2026 YMT-TK",
+    "homepage": "https://github.com/YMT-TK/WorkBench",
+    "category": "DeveloperTool",
+    "shortDescription": "插件化桌面工作台",
+    "longDescription": "插件化桌面工作台：数据中心卡片 + 项目管理 + 音频管理，数据本地 SQLite 存储。",
+    "licenseFile": "EULA.txt",
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "both",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "icons/nsis-header.bmp",
+        "uninstallerHeaderImage": "icons/nsis-header.bmp",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "compression": "lzma",
+        "startMenuFolder": "WorkBench"
+      }
+    }
   }
 }

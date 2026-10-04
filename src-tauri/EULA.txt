@@ -1,0 +1,86 @@
+﻿WorkBench 安装须知与免责声明
+========================================
+
+一、本项目为开源项目
+
+WorkBench 是开源软件，源代码公开于：
+https://github.com/YMT-TK/WorkBench
+
+本项目依据 Apache License 2.0 协议授权，任何人都可以自由获取、
+审查、修改和分发其源代码。
+
+本页内容仅为安装前的风险提示，不改变、也不替代上述开源许可协议
+的任何条款；本软件不提供任何额外的商业保证或技术支持承诺。
+
+二、不提供任何形式的保证
+
+本软件按「现状」（AS IS）提供。作者与贡献者不对本软件的适用性、
+可靠性、安全性、稳定性作出任何明示或默示的保证。
+
+使用本软件可能因程序缺陷、第三方组件问题、系统环境差异或其他
+不可预见的原因，导致数据丢失、程序异常、系统不稳定等后果。
+
+三、风险自负
+
+您应当自行评估并承担使用本软件的全部风险。在适用法律允许的最大
+范围内，作者与贡献者不对因使用或无法使用本软件而产生的任何直接
+或间接损失承担责任。
+
+四、安装前请自行备份
+
+请在安装本软件前备份重要数据，并避免在对稳定性、安全性有严格
+要求的关键环境（如生产系统、涉密设备等）中直接使用本软件。
+
+五、不同意请勿安装
+
+如果您对本软件的安全性、稳定性存有疑虑，或者无法接受上述风险，
+请立即取消安装，并不要使用本软件。
+
+继续安装，即表示您已阅读、理解并接受本页全部内容。
+
+
+----------------------------------------
+Installation Notice (English)
+----------------------------------------
+
+1. OPEN SOURCE PROJECT
+
+WorkBench is an open-source project released under the Apache License 2.0.
+Its source code is publicly available at:
+https://github.com/YMT-TK/WorkBench
+
+This notice is a risk disclosure only. It does not modify or replace any
+term of the above license, and no commercial warranty or technical support
+is provided.
+
+2. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE AUTHORS AND CONTRIBUTORS MAKE NO WARRANTY AS TO ITS FITNESS,
+RELIABILITY, SECURITY OR STABILITY.
+
+USE OF THIS SOFTWARE MAY RESULT IN DATA LOSS, PROGRAM MALFUNCTION, SYSTEM
+INSTABILITY OR OTHER CONSEQUENCES DUE TO DEFECTS, THIRD-PARTY COMPONENTS,
+ENVIRONMENTAL DIFFERENCES OR OTHER UNFORESEEN CAUSES.
+
+3. USE AT YOUR OWN RISK
+
+YOU ASSUME ALL RISKS ARISING FROM THE USE OF THIS SOFTWARE. TO THE MAXIMUM
+EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHORS AND CONTRIBUTORS SHALL NOT
+BE LIABLE FOR ANY DIRECT OR INDIRECT DAMAGES ARISING FROM THE USE OF OR
+INABILITY TO USE THIS SOFTWARE.
+
+4. BACK UP BEFORE INSTALLING
+
+Please back up important data before installing, and avoid using this
+software directly in critical environments (such as production systems or
+classified equipment) that demand strict stability and security.
+
+5. DO NOT INSTALL IF YOU DISAGREE
+
+IF YOU HAVE CONCERNS ABOUT THE SAFETY OR STABILITY OF THIS SOFTWARE, OR YOU
+DO NOT ACCEPT THE ABOVE RISKS, PLEASE CANCEL THE INSTALLATION IMMEDIATELY
+AND DO NOT USE THIS SOFTWARE.
+
+BY CONTINUING THE INSTALLATION, YOU ACKNOWLEDGE THAT YOU HAVE READ,
+UNDERSTOOD AND ACCEPTED ALL OF THE ABOVE.

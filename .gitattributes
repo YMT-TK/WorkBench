@@ -4,6 +4,7 @@
 # 二进制资源不做换行转换
 *.png  binary
 *.ico  binary
+*.bmp  binary
 *.jpg  binary
 *.jpeg binary
 *.gif  binary
@@ -18,3 +19,7 @@
 # 锁文件在合并时视为整体，不做逐行合并
 package-lock.json  -diff
 Cargo.lock         -diff
+
+# 安装向导协议页：必须保持 UTF-8 BOM + CRLF
+# （无 BOM 则 NSIS 按 ANSI 解码导致中文乱码；LF 会让 richedit 不换行）
+src-tauri/EULA.txt  text eol=crlf
