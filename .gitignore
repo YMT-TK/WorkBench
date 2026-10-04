@@ -6,6 +6,10 @@ data/logs/
 # Dependencies
 node_modules/
 
+# Python 脚本缓存（scripts/ 下的辅助工具）
+__pycache__/
+*.pyc
+
 # Build output
 dist/
 src-tauri/target/

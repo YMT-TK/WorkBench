@@ -29,9 +29,9 @@ export function Sidebar() {
       style={{ width: collapsed ? 56 : 208 }}
     >
       <div className="flex h-11 shrink-0 items-center gap-2 overflow-hidden px-3">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-accent text-[13px] font-bold text-white">
-          W
-        </span>
+        {/* 应用图标：与桌面端 .ico 同源（public/app-icon.png，由 scripts/ai-icons-to-ico.py 导出），
+            不要再写死字母占位块，否则换图标时这里会漏掉 */}
+        <img src="/app-icon.png" alt="" className="h-6 w-6 shrink-0 rounded-md" />
         {!collapsed && (
           <span className="truncate text-sm font-semibold text-text-primary">WorkBench</span>
         )}

@@ -379,7 +379,10 @@ function About() {
   const archText = [home?.name, ...business.map((m) => m.name)].filter(Boolean).join(" + ");
   return (
     <div className="space-y-1.5 text-sm text-text-secondary">
-      <div className="text-text-primary">WorkBench · 桌面工作台</div>
+      <div className="flex items-center gap-2 text-text-primary">
+        <img src="/app-icon.png" alt="" className="h-6 w-6 rounded-md" />
+        <span>WorkBench · 桌面工作台</span>
+      </div>
       <div>版本 0.1.0</div>
       <div>插件化架构：{archText || "—"}</div>
       <div className="pt-1 text-xs text-text-muted">
