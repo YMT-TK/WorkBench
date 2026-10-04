@@ -1,0 +1,45 @@
+[package]
+name = "workbench"
+version = "0.1.0"
+description = "插件化桌面工作台"
+authors = ["you"]
+edition = "2021"
+
+# 单实例：同一 workbench.db 只允许一个进程写（见 AGENTS §5.x 单边锁）
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# build 上下文的 indexmap（schemars 0.8.22 经 tauri-build 引入）需启用 std，
+# 否则 RandomState 默认缺失，schemars 的 `IndexMap<K,V>` 编译报“缺第3泛型”。
+indexmap = { version = "1.8.2", features = ["std"] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+# indexmap 自 1.9 起 IndexMap 改为 3 泛型且无默认，导致 schemars 0.8.22（tauri-build 的传递依赖）
+# 的 `Map<K,V> = IndexMap<K,V>` 编译失败。锁定 1.8.2（2 泛型 + RandomState 默认），同时满足
+# serde_with 的 `^1.8` 约束。
+indexmap = "=1.8.2"
+log = "0.4"
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+# 安全与加密（AGENTS §7 方案 A）：AES-256-GCM 字段级加密 + 主密钥存 OS 凭据库。
+aes-gcm = "0.10"
+base64 = "0.22"
+# Windows 使用凭据管理器（windows-native）；不启用服务端 secret-service 等无关后端。
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[lib]
+name = "workbench_lib"
+
+[features]
+# 移动端入口（默认关闭，桌面优先）
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "z"     # 体积优先
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

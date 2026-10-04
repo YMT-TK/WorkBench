@@ -1,0 +1,20 @@
+# 统一以 LF 存入仓库，避免 Windows/跨平台协作时整文件 diff
+* text=auto eol=lf
+
+# 二进制资源不做换行转换
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.db   binary
+*.exe  binary
+*.dll  binary
+
+# 锁文件在合并时视为整体，不做逐行合并
+package-lock.json  -diff
+Cargo.lock         -diff

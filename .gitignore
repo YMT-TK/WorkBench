@@ -1,0 +1,36 @@
+# Logs
+logs
+*.log
+data/logs/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# Tauri generated
+src-tauri/gen/
+
+# Local data (never commit user data)
+*.db
+*.db-wal
+*.db-shm
+media/
+backups/
+data/exports/
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite 配置临时快照（vite 加载 config 时产生，非源码）
+vite.config.ts.timestamp-*
+
+# WorkBuddy 工作区数据（本机日志 / 探针输出 / 图标备份 / 本地记忆，不入库）
+.workbuddy/

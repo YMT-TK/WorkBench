@@ -1,0 +1,70 @@
+/* 设计令牌（与 AGENTS.md 令牌表一致，新增 danger 用于错误通知）
+   组件只引用变量名，切换 data-theme 即一键换肤。
+
+   每个颜色令牌双写：
+   - `--x`     十六进制，供 CSS 直接使用（global.css 等）
+   - `--x-rgb` R G B 通道，供 Tailwind 生成 rgb(var(--x-rgb) / <alpha-value>)，
+               这样 bg-surface/60、ring-accent/30 之类的透明度修饰才真正生效。
+   只写 hex 会导致所有 `/NN` 透明度类静默失效（隐性哑类），务必成对新增。 */
+:root,
+[data-theme="light"] {
+  --bg-app: #fafcff;
+  --bg-app-rgb: 250 252 255;
+  --bg-sidebar: #f1f4f7;
+  --bg-sidebar-rgb: 241 244 247;
+  --surface: #ffffff;
+  --surface-rgb: 255 255 255;
+  --text-primary: #0a1317;
+  --text-primary-rgb: 10 19 23;
+  --text-secondary: #1c1e21;
+  --text-secondary-rgb: 28 30 33;
+  --text-muted: #8595a4;
+  --text-muted-rgb: 133 149 164;
+  --accent: #0064e0;
+  --accent-rgb: 0 100 224;
+  --border: #dee3ea;
+  --border-rgb: 222 227 234;
+  --success: #31944c;
+  --success-rgb: 49 148 76;
+  --warning: #f2a918;
+  --warning-rgb: 242 169 24;
+  --danger: #d93636;
+  --danger-rgb: 217 54 54;
+  --radius-card: 16px;
+
+  /* 阴影令牌（卡片分级）：浅色用低透明冷灰，营造轻微浮起（类 Meta 卡片观感） */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-card-hover: 0 10px 24px rgba(16, 24, 40, 0.1), 0 2px 6px rgba(16, 24, 40, 0.06);
+  --shadow-float: 0 18px 44px rgba(16, 24, 40, 0.18), 0 4px 12px rgba(16, 24, 40, 0.08);
+}
+
+[data-theme="dark"] {
+  --bg-app: #0f1419;
+  --bg-app-rgb: 15 20 25;
+  --bg-sidebar: #161c24;
+  --bg-sidebar-rgb: 22 28 36;
+  --surface: #1e2630;
+  --surface-rgb: 30 38 48;
+  --text-primary: #e6edf3;
+  --text-primary-rgb: 230 237 243;
+  --text-secondary: #b0bac5;
+  --text-secondary-rgb: 176 186 197;
+  --text-muted: #6b7886;
+  --text-muted-rgb: 107 120 134;
+  --accent: #0064e0;
+  --accent-rgb: 0 100 224;
+  --border: #2a323c;
+  --border-rgb: 42 50 60;
+  --success: #3fb45e;
+  --success-rgb: 63 180 94;
+  --warning: #f5b63c;
+  --warning-rgb: 245 182 60;
+  --danger: #ff6b6b;
+  --danger-rgb: 255 107 107;
+  --radius-card: 16px;
+
+  /* 深色下阴影需更重（否则在深底上看不见浮起层级） */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover: 0 12px 30px rgba(0, 0, 0, 0.55), 0 3px 8px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 20px 48px rgba(0, 0, 0, 0.62), 0 6px 16px rgba(0, 0, 0, 0.45);
+}
