@@ -6,17 +6,32 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { CornerDownLeft, EyeOff, Search } from "lucide-react";
-import { listModules } from "@/app/registry";
 import { useAppSetting } from "@/core/shared/hooks/useAppSetting";
 
 /**
  * 命令面板（AGENTS §12-A：全局搜索 Ctrl/Cmd+K）。
  * 注意 AGENTS §15：隐藏 = 藏入口而非禁用 —— 已隐藏模块仍可在此调起（带「已隐藏」标记）。
  */
+
+/**
+ * 命令面板所需的最小模块契约。
+ *
+ * 🔴 刻意**不**引用 `@/app/registry` 的 `ModuleManifest`：`core/` 是平台库层，
+ * 不许反向依赖应用骨架 `app/`（AGENTS §21.2 / §21.6）—— 模块清单由外壳经 props 注入。
+ * `ModuleManifest` 在结构上满足本接口，调用处无需显式转换。
+ */
+export interface CommandPaletteModule {
+  id: string;
+  name: string;
+  icon: ComponentType<{ size?: string | number; className?: string }>;
+  /** 系统级模块不参与「隐藏」（AGENTS §15）；非 system 才显示「已隐藏」标记 */
+  system?: boolean;
+}
 
 interface CommandPaletteContextValue {
   isOpen: boolean;
@@ -32,7 +47,14 @@ export function useCommandPalette(): CommandPaletteContextValue {
   return ctx;
 }
 
-export function CommandPaletteProvider({ children }: { children: ReactNode }) {
+export function CommandPaletteProvider({
+  modules,
+  children,
+}: {
+  /** 🔴 由应用壳注入（`listModules()`）—— `core/` 不认识模块注册表 */
+  modules: CommandPaletteModule[];
+  children: ReactNode;
+}) {
   const [isOpen, setIsOpen] = useState(false);
 
   const open = useCallback(() => setIsOpen(true), []);
@@ -55,12 +77,18 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   return (
     <CommandPaletteContext.Provider value={{ isOpen, open, close }}>
       {children}
-      {isOpen && <CommandPalette onClose={close} />}
+      {isOpen && <CommandPalette modules={modules} onClose={close} />}
     </CommandPaletteContext.Provider>
   );
 }
 
-function CommandPalette({ onClose }: { onClose: () => void }) {
+function CommandPalette({
+  modules,
+  onClose,
+}: {
+  modules: CommandPaletteModule[];
+  onClose: () => void;
+}) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -69,10 +97,10 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return listModules().filter(
+    return modules.filter(
       (m) => !q || m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [modules, query]);
 
   useEffect(() => {
     inputRef.current?.focus();

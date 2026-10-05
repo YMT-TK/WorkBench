@@ -15,7 +15,7 @@ export function AppRouter() {
   const home = `/${getHomeModuleId() ?? ""}`;
   return (
     <HashRouter>
-      <CommandPaletteProvider>
+      <CommandPaletteProvider modules={modules}>
         <Routes>
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to={home} replace />} />
