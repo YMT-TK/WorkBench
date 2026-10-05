@@ -330,6 +330,7 @@ scripts/
 ├─ dev-app.mjs                # 真机一键启动器（绕开 tauri dev 的管道问题）
 ├─ e2e-probe.js               # dev 期端到端探针（真 WebView 内自动点击验证）
 ├─ probe-report.py            # 解析探针分块报告（先报缺块，再列断言）
+├─ verify-github-ssh-keys.py  # 校验 GitHub SSH 主机密钥（对官方指纹）并生成 known_hosts
 ├─ ai-icons-to-ico.py         # AI 生图 PNG → 多尺寸 .ico（裁边 / 去白底圆角 / 预览图）
 ├─ gen-nsis-assets.py         # 生成 NSIS 所需的 24bit BMP 位图（header 150×57 / sidebar 164×314）
 ├─ make-icon-compare.py       # 旧 / 新图标对比图（含小尺寸可读性行）
