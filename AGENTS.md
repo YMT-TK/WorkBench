@@ -976,13 +976,13 @@ cargo 会**忽略非根包**里的 profile 定义
 
 | 动作 | 做法 |
 |---|---|
-| 标记一个可复用版本 | `git tag -a v0.1.1 -m "…"`；`main` 始终保持在可发布状态 |
+| 标记一个可复用版本 | `git tag -a v0.2.0 -m "…"`；`main` 始终保持在可发布状态 |
 | 新项目开工 | `gh repo create <proj> --template YMT-TK/WorkBench --private` |
 | 接入平台上游 | `git remote add upstream ssh://git@ssh.github.com:443/YMT-TK/WorkBench.git` |
 | 吸收平台更新 | `git fetch upstream && git merge upstream/main` |
 | 只挑某个平台修复 | `git cherry-pick <平台 commit>`（靠 §21.6 的前缀识别） |
 
-- 🔴 **每个新项目要记下自己基于哪个平台 tag**（如 `v0.1.1`）—— 平台升级才不会意外破坏已有项目。
+- 🔴 **每个新项目要记下自己基于哪个平台 tag**（如 `v0.2.0`）—— 平台升级才不会意外破坏已有项目。
   给旧项目补平台修复走 `release/0.1` 分支 hotfix，再往前 merge，而不是直接在旧的线上改。
 - ⚠️ **新仓库 clone 后，本机的 `core.sshCommand` 不跟着走**（443 + 自定义 `known_hosts` 属本地配置，
   不进版本库）→ 新项目要重设一次。
@@ -999,7 +999,7 @@ cargo 会**忽略非根包**里的 profile 定义
     固化成「必须遵守」的接口，比不拆更糟。
   - ⚠️ 第 2 个项目**必须**走 `upstream merge`，**不能** fork 拷贝：拷贝只能证明「代码能跑」（废话），
     拿不到「升级摩擦」这个唯一有效的判据。
-  - **Rust 侧成本最低**：Cargo 原生支持 git 依赖（`{ git = "…", tag = "v0.1.1" }`，无需私有 registry），
+  - **Rust 侧成本最低**：Cargo 原生支持 git 依赖（`{ git = "…", tag = "v0.2.0" }`，无需私有 registry），
     且会在目标仓库里**按包名在 workspace 成员中解析** ⇒ **不一定**要把 `crates/` 拆成独立仓库
     （首次真用时要验证）。剩下唯一的代价是平台 API 一改、各项目得跟着动。
   - **前端要等更久**：`core/` 已可抽（零反向依赖），但 `app/` 与两个 glob 入口抽不走（§21.6 判据）；

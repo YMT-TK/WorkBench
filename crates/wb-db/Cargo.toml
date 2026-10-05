@@ -1,6 +1,6 @@
 [package]
 name = "wb-db"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "WorkBench 平台数据层：数据目录布局 + SQLite 连接与迁移执行器"
 license = "Apache-2.0"

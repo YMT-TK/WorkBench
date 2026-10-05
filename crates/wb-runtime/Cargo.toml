@@ -1,6 +1,6 @@
 [package]
 name = "wb-runtime"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "WorkBench 平台运行时：密钥 / 备份 / 换目录迁移 / 跨机导入 / 窗口 bounds / 托盘"
 license = "Apache-2.0"

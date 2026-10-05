@@ -407,7 +407,7 @@ python scripts/probe-report.py .workbuddy/e2e.log
 CARGO_INCREMENTAL=0 npx tauri build     # 先停 dev:app
 ```
 
-- 产物：`target/release/bundle/nsis/WorkBench_0.1.1_x64-setup.exe`（lzma，约 1.8 MB）
+- 产物：`target/release/bundle/nsis/WorkBench_0.2.0_x64-setup.exe`（lzma，约 1.8 MB）
   （⚠️ workspace 化后产物在**仓库根** `target/`，不再是 `src-tauri/target/`）
 - `bundle.targets` 收敛为 `["nsis"]`（要 MSI 时单独 `--bundles msi`）
 - NSIS 定制：`installMode: "both"`（⚠️ 恒需管理员权限、安装时必弹 UAC）+ 中英双语语言选择器 +
