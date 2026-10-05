@@ -934,6 +934,40 @@ cargo 会**忽略非根包**里的 profile 定义
 - ⛔ 平台目录里不许出现业务名词（§3 规约 7）—— 与提交纪律是**同一件事的两面**：
   目录分不清，提交自然也分不清。
 
+#### 与平台的耦合点清单（✅ 共 15 处；改其一即「破坏性变更」）
+
+平台能不能被新项目继承、升级，只看一件事：**触碰面够不够窄**。下表是与平台连接的**全部**位置。
+⛔ 新增一处就永久多一份升级成本 —— 加之前先问「能不能收进 `core/` / `crates/`」。
+
+| # | 耦合点 | 具体内容 |
+|---|---|---|
+| 1 | `vite.config.ts` | `@` alias、dev 请求日志、e2e 探针注入、`__APP_VERSION__` 注入 |
+| 2 | `tailwind.config.ts` | `content` 扫描路径 + 颜色/阴影令牌 |
+| 3 | `postcss.config.js` | tailwind + autoprefixer |
+| 4 | `tsconfig.json` | `paths: { "@/*": ["src/*"] }` |
+| 5 | `src-tauri/tauri.conf.json` | `productName` / `identifier` / 图标 / 窗口参数（含 `--no-sandbox`） |
+| 6 | `index.html` | 挂载点 `#root` + 入口脚本 |
+| 7 | `src/styles/tokens.css` | 色/阴影令牌（hex 与 `-rgb` **必须成对**） |
+| 8 | `src/styles/global.css` | 基础层样式 |
+| 9 | `src/modules/index.ts` 的 `import.meta.glob` | 单层通配自动发现模块 |
+| 10 | `src/widgets/index.ts` 的 `import.meta.glob` | 自动发现 Widget manifest |
+| 11 | `src/app/**` | 侧边栏 / 顶栏 / 路由 / 注册表 / 主题（8 文件） |
+| 12 | `src/App.tsx` + `src/main.tsx` | Provider 嵌套顺序 + 启动自检 |
+| 13 | `src-tauri/src/lib.rs` | 初始化顺序 + `invoke_handler!` 命令清单 |
+| 14 | **IPC 命令名** | 前端 `api.*` ↔ 后端命令名，**跨语言锁步**，改一个必须两边同时改 |
+| 15 | `public/app-icon.png` + `src-tauri/icons/**` | 品牌位与打包图标**必须同源** |
+
+- 🔴 **判据**：改动上表任意一行 ⇒ 该版本**至少 minor**，且必须写迁移说明。
+  别把它当文档摆设 —— 它是「这次升级要不要通知各项目」的唯一依据。
+- 🔴 **`core/` 不许引用 `app/`**（第 11 行），与 Rust 侧 `wb-runtime` 不许依赖 `src-tauri` 同理。
+  正向（`app/` → `core/`、`modules/` → `app/`）是允许的。
+  📌 实例：`CommandPalette` 原先直接 `import { listModules } from "@/app/registry"` —— 已改为
+  由外壳经 props 注入（最小契约 `CommandPaletteModule` 定义在 `core/` 内）。
+- 🔴 **前端抽包能不能成，取决于第 9/10 两项**：`import.meta.glob` 的路径是**相对消费方源码目录**的，
+  发现不了 `node_modules` 里的模块（该相对路径还会随 npm hoisting / pnpm symlink 布局变化）。
+  ⇒ 将来可抽的只有 `core/`，`app/` 与两个 glob 入口**必须留在应用里**。
+- 📌 第 11/12 行与 `core/` 同属 🟦 平台，但**可复用性不同**：`core/` 是**可抽的库**，`app/` 是**骨架模板**。
+
 ### 21.7 版本与分支策略
 
 - ⛔ **不要**给每个项目开一条长期分支。业务模块要**同时存在**（数据中心插件模型就是多模块共存），
@@ -952,7 +986,22 @@ cargo 会**忽略非根包**里的 profile 定义
   给旧项目补平台修复走 `release/0.1` 分支 hotfix，再往前 merge，而不是直接在旧的线上改。
 - ⚠️ **新仓库 clone 后，本机的 `core.sshCommand` 不跟着走**（443 + 自定义 `known_hosts` 属本地配置，
   不进版本库）→ 新项目要重设一次。
-- 📌 **暂时不抽私有包**：Rust 侧 Cargo 虽原生支持 git 依赖（`{ git = "…", tag = "v0.1.1" }`，无需私有 registry），
-  但要先把 `crates/` 拆成独立仓库，代价是改一个平台 API 得跨两个仓库提交两次。
-  前端 UI 迭代频率远高于 Rust，打包会变成「每改一处都发版」。
-  **判据：等有第 2~3 个项目、且平台 API 稳定了再抽 —— 只有一个消费者时，拆开只剩摩擦。**
+  🔴 更要紧的是：**npm / cargo 拉 git 依赖时 git 在「仓库外」跑，不继承仓库局部配置**
+  （`core.sshCommand` 与 `url.insteadOf` 都只写在仓库里）→ 会直连 22 端口撞 `Host key verification failed`。
+  要跑通 git 依赖，须把等效配置放到**全局** git config 或 `~/.ssh/config`
+  （后者受「`~/.ssh/` 下已有文件不可覆盖」限制）→ 兜底用环境变量 `GIT_SSH_COMMAND`。
+- 📌 **先做第 2 个项目当「复用实验」，验证通过再抽私有包。**
+  核心区分：**拆包是机械动作（可延后），边界是设计决策（必须现在定）**。
+  边界已由 §21.6 的耦合点清单 + 提交纪律钉死 ⇒ 拆包随时可做，不必抢跑。
+  - 🔴 **前提判据**（⚠️ 必须**事先**定下，否则事后必然自欺）：第 2 个项目在
+    ① **尽量不改平台目录**、② **靠 `upstream merge` 吸收平台更新** 两条同时成立的前提下跑通。
+    **反向信号**：若它把平台改得面目全非 ⇒ **是平台抽象错了**，此时拆包只会把错误的抽象
+    固化成「必须遵守」的接口，比不拆更糟。
+  - ⚠️ 第 2 个项目**必须**走 `upstream merge`，**不能** fork 拷贝：拷贝只能证明「代码能跑」（废话），
+    拿不到「升级摩擦」这个唯一有效的判据。
+  - **Rust 侧成本最低**：Cargo 原生支持 git 依赖（`{ git = "…", tag = "v0.1.1" }`，无需私有 registry），
+    且会在目标仓库里**按包名在 workspace 成员中解析** ⇒ **不一定**要把 `crates/` 拆成独立仓库
+    （首次真用时要验证）。剩下唯一的代价是平台 API 一改、各项目得跟着动。
+  - **前端要等更久**：`core/` 已可抽（零反向依赖），但 `app/` 与两个 glob 入口抽不走（§21.6 判据）；
+    且 UI 迭代频率远高于 Rust，打包会变成「每改一处都发版」。
+  - **总判据：等有第 2~3 个项目、且平台 API 稳定了再抽 —— 只有一个消费者时，拆开只剩摩擦。**
