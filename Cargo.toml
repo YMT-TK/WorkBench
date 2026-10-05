@@ -1,0 +1,33 @@
+# WorkBench 平台工作区（AGENTS §21）。
+#
+# 成员的划分本身就是「平台」与「应用壳」的边界（AGENTS §3 规约 7）：
+#   crates/wb-db       数据「在哪 / 怎么存」—— 目录布局 + SQLite 连接与迁移执行器
+#   crates/wb-runtime  平台「能做什么」—— 密钥 / 备份 / 换目录迁移 / 跨机导入 / 窗口 bounds / 托盘
+#   src-tauri          应用壳 —— 每个项目一份，新项目从模板生成
+#
+# 🔴 依赖方向只允许单向：src-tauri → wb-runtime → wb-db（AGENTS §21.2）。
+#    反向依赖不会报编译错误，只会在想复用平台时才发现已经粘死。
+#
+# ⚠️ 有了 workspace 之后，构建产物落在 **<仓库根>/target/**，
+#    不再是 `src-tauri/target/`（NSIS 安装包也随之移到 target/release/bundle/nsis/）。
+#    `.gitignore` 已相应改为忽略根 `/target/`。
+[workspace]
+resolver = "2"
+members = ["crates/wb-db", "crates/wb-runtime", "src-tauri"]
+
+[workspace.dependencies]
+# 🔴 为 `schemars 0.8.22` 钉住 `indexmap`（它写着 `pub type Map<K,V> = IndexMap<K,V>`，
+#    只有 1.8.2 + `std` 特性才有 `S = RandomState` 默认参数）。详见 `crates/wb-db/Cargo.toml`。
+#    ⛔ 别升级 indexmap —— 2.x 的 `IndexMap` 无默认泛型，schemars 会直接编译失败。
+indexmap = { version = "=1.8.2", features = ["std"] }
+
+# release 体积优化（原在 src-tauri/Cargo.toml）。
+# 🔴 必须放在 workspace 根：cargo 会忽略「非根包」里的 profile 定义
+#    （`warning: profiles for the non root package will be ignored`）——
+#    留在 src-tauri 里等于**这些优化全部失效**，安装包会明显变大。
+[profile.release]
+opt-level = "z"     # 体积优先
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

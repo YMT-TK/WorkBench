@@ -7,7 +7,7 @@
 use tauri::{AppHandle, State};
 
 use crate::backup::{self, BackupItem, BackupReport, RestoreReport};
-use crate::db::{DbPathState, DbState};
+use wb_db::db::{DbPathState, DbState};
 
 /// 立即创建一个备份快照。
 #[tauri::command]
@@ -48,7 +48,7 @@ pub fn backup_restore(
 /// 在系统文件管理器里打开备份目录（用户据此把快照拷到 U 盘 / 网盘）。
 #[tauri::command]
 pub fn backup_open_dir(app: AppHandle) -> Result<(), String> {
-    let dir = crate::storage::backup_dir(&app)?;
+    let dir = wb_db::storage::backup_dir(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建备份目录失败：{e}"))?;
     crate::commands::storage::open_in_file_manager(&dir)
 }

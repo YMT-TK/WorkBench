@@ -1,40 +1,41 @@
 [package]
 name = "workbench"
 version = "0.1.0"
-description = "插件化桌面工作台"
-authors = ["you"]
+description = "插件化桌面工作台 · 应用壳（平台能力见 crates/）"
+authors = ["YMT-TK"]
 edition = "2021"
 
 # 单实例：同一 workbench.db 只允许一个进程写（见 AGENTS §5.x 单边锁）
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-# build 上下文的 indexmap（schemars 0.8.22 经 tauri-build 引入）需启用 std，
-# 否则 RandomState 默认缺失，schemars 的 `IndexMap<K,V>` 编译报“缺第3泛型”。
-indexmap = { version = "1.8.2", features = ["std"] }
+# 🔴 为 schemars 0.8.22 钉住 indexmap（详见根 Cargo.toml 与 crates/wb-db/Cargo.toml 的说明）：
+#    它写着 `pub type Map<K,V> = IndexMap<K,V>`，只有 1.8.2 + `std` 才有 `S = RandomState` 默认参数。
+#    版本与特性在 `[workspace.dependencies]` 里，这里只做「继承」。
+indexmap = { workspace = true }
 
 [dependencies]
+# ---------- 平台能力（AGENTS §3 规约 7 / §21）----------
+# 应用壳**不实现**任何平台能力，只依赖两个 crate：
+#   · wb-db      数据「在哪 / 怎么存」
+#   · wb-runtime 平台「能做什么」（它自己再依赖 wb-db）
+# 🔴 依赖方向单向：src-tauri → wb-runtime → wb-db。
+wb-db = { path = "../crates/wb-db" }
+wb-runtime = { path = "../crates/wb-runtime" }
+
+# ---------- 壳自身需要 ----------
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
-# indexmap 自 1.9 起 IndexMap 改为 3 泛型且无默认，导致 schemars 0.8.22（tauri-build 的传递依赖）
-# 的 `Map<K,V> = IndexMap<K,V>` 编译失败。锁定 1.8.2（2 泛型 + RandomState 默认），同时满足
-# serde_with 的 `^1.8` 约束。
-indexmap = "=1.8.2"
 log = "0.4"
 tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
-# 安全与加密（AGENTS §7 方案 A）：AES-256-GCM 字段级加密 + 主密钥存 OS 凭据库。
-aes-gcm = "0.10"
-base64 = "0.22"
-# Windows 使用凭据管理器（windows-native）；不启用服务端 secret-service 等无关后端。
-keyring = { version = "3", default-features = false, features = ["windows-native"] }
-# 密钥可移植化（设计文档 §8.4）：口令派生用 Argon2id；密钥指纹用 SHA-256。
-argon2 = "0.5"
-sha2 = "0.10"
 # 系统文件对话框（设计文档 §7.6）：跨机导入要选「备份包目录 + .wbkey」，
 # 从 U 盘/下载目录里挑文件时手输路径太容易错。仅用到 open（选文件/选目录）。
 tauri-plugin-dialog = "2"
+
+# ⚠️ 以下依赖已随平台能力下沉到 crates/，应用壳不再直接使用：
+#    rusqlite（→ wb-db）、aes-gcm / base64 / keyring / argon2 / sha2（→ wb-runtime）。
+#    要新增必须先问：这是「平台能力」还是「本应用独有」？前者进 crate，别加在这里。
 
 [lib]
 name = "workbench_lib"
@@ -43,9 +44,5 @@ name = "workbench_lib"
 # 移动端入口（默认关闭，桌面优先）
 custom-protocol = ["tauri/custom-protocol"]
 
-[profile.release]
-opt-level = "z"     # 体积优先
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+# ⚠️ `[profile.release]` 已移到**根 Cargo.toml** —— cargo 会忽略非根包里的 profile 定义
+#    （`warning: profiles for the non root package will be ignored`），留在这里等于体积优化失效。

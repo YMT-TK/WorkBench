@@ -27,8 +27,10 @@ use tauri::AppHandle;
 
 use crate::backup::{self, BackupItem};
 use crate::crypto;
-use crate::db::DbState;
-use crate::{fsutil, storage};
+use wb_db::db::DbState;
+use wb_db::storage;
+
+use crate::fsutil;
 
 /// id 太长会撑爆路径（Windows 单段 255 字符），这里给个保守上限。
 const MAX_ID_LEN: usize = 96;

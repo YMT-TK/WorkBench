@@ -14,7 +14,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager};
 
-use crate::db::DbState;
+use wb_db::db::DbState;
 
 /// 设置键：关闭窗口时是否最小化到托盘。
 /// 存 `app_settings`，值是 JSON（`true` / `false`），与前端 `useAppSetting` 一致。

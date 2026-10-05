@@ -1,6 +1,6 @@
 # WorkBench 架构设计
 
-> **状态**：v1.3.1 · 2026-10-05（跨机导入向导 + 迁移拒绝非空目标落地；文档一致性修正）
+> **状态**：v1.4 · 2026-10-05（平台能力 crate 化：根 workspace + `crates/wb-db` / `crates/wb-runtime`，应用壳只做编排）
 > **地位**：本文件是 WorkBench 的**架构权威出处**——架构图、表结构、设计令牌表、签名/分发细节以本文为准。
 > **与 AGENTS.md 的关系**：`AGENTS.md` 是**开发规约**（怎么做事）；本文是**架构设计**（做成什么样）。
 > 两者冲突时以本文为准，并回头修订 `AGENTS.md`。
@@ -99,14 +99,42 @@ src/
 
 ```
 用户点「应用数据目录」
-  → Settings.tsx DataPanel
+  → Settings.tsx DataLocationPanel
   → api.storageSetDir(dir, migrate)          [core/shared/api]
   → invoke("storage_set_dir", {...})         [IPC]
-  → commands::storage::storage_set_dir       [Rust]
-  → storage::set_override（写 storage.json）
+  → wb_runtime::storage_set_dir              [应用壳挂载的命令，实现在 wb-runtime]
+  → wb_db::storage::set_override（写 storage.json）
   → 返回 Ok / Err(String)
   → notify("success" | "error") + 写日志      [前端统一收口]
 ```
+
+### 3.4 仓库结构：平台能力（`crates/`）与应用壳（`src-tauri/`）
+
+本仓库是**平台 / 框架**：后续项目在它之上开工，只换一份应用壳（开工工序见 `AGENTS.md` §21）。
+
+```
+<仓库根>/Cargo.toml          # [workspace] members = crates/wb-db, crates/wb-runtime, src-tauri
+├─ crates/                   # 🔴 平台能力：与业务无关，可被新项目直接复用
+│  ├─ wb-db/                 #   数据「在哪 / 怎么存」：目录布局 + 连接 + 迁移执行器
+│  └─ wb-runtime/            #   平台「能做什么」：密钥 / 备份 / 迁移 / 跨机导入 / 托盘 / 窗口
+└─ src-tauri/                # 应用壳：每个项目一份
+                             #   （identifier / 图标 / capabilities / EULA / invoke_handler 清单）
+```
+
+**依赖方向只允许单向**：`src-tauri → wb-runtime → wb-db`。
+
+🔴 **反向依赖不会报编译错误** —— 它只会在你想复用平台时才发现已经粘死。
+自查判据一句话：**换个完全不相干的业务，这段代码还能原样用吗？** 不能 → 它属于 `src/modules/`，不属于 `crates/`。
+（历史教训：`backup.rs` 曾调用命令层的 `get_setting_conn`，形成 `wb-runtime → 应用壳` 的反向依赖；
+已把该原语下沉到 `wb-db::settings` 消除。）
+
+⚠️ workspace 化带来三处**静默**陷阱，均已处理，改动时别踩回去（ADR-19）：
+
+| 陷阱 | 症状 | 处置 |
+|---|---|---|
+| 构建产物位置 | 产物落到**仓库根** `target/`，未被忽略 → 近 GB 的未跟踪文件混进 `git status` | `.gitignore` 忽略 `/target`（旧 `src-tauri/target/` 保留兼容） |
+| `[profile.release]` 位置 | 留在 `src-tauri/Cargo.toml` 里，cargo 只打一行 warning 然后**忽略**它 —— `opt-level="z"`/`lto`/`strip` 全失效 | 移到**根** `Cargo.toml` |
+| `indexmap` 特征 | `schemars 0.8.22` 报「struct takes 3 generic arguments but 2 were supplied」 | 钉在 `wb-db` 的 **`[build-dependencies]`**（host 图；见 AGENTS §21.5 / ADR-19） |
 
 ---
 
@@ -170,7 +198,7 @@ getHomeModuleId()  // app/registry.ts：pinned → 第一个 system → 第一�
 
 ### 6.2 迁移（migration）
 
-- 版本号存 `PRAGMA user_version`；脚本表在 `src-tauri/src/db/mod.rs` 的 `MIGRATIONS` 常量里追加。
+- 版本号存 `PRAGMA user_version`；脚本表在 `crates/wb-db/src/db/mod.rs` 的 `MIGRATIONS` 常量里追加。
 - 文件命名 `NNNN_name.sql`，**追加式**：新迁移永远加在末尾，⛔ 绝不修改已发布脚本。
 - 每个迁移在**事务内原子提交**，失败即回滚，`user_version` 不前进。
 - **升级不清数据**：只增量建表/加列，不 DROP 他人表；新模块只加自己前缀的表。
@@ -242,7 +270,7 @@ CREATE INDEX idx_op_log_ts ON op_log(ts DESC);
 ## 7. 存储与目录模型 ★
 
 > **目标**：用户**只需要改一个「数据根目录」**，其下所有内容按固定相对路径自动跟随。
-> 实现：`src-tauri/src/storage.rs`（解析）+ `src-tauri/src/commands/storage.rs`（命令层）。
+> 实现：`crates/wb-db/src/storage.rs`（解析）+ `crates/wb-runtime/src/commands/storage.rs`（命令层）。
 
 ### 7.1 根目录与相对布局
 
@@ -576,8 +604,9 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 ### 10.1 安装包（NSIS）
 
 - **命令**：`CARGO_INCREMENTAL=0 npx tauri build`（先停 `dev:app`，避免抢 CPU）。
-- **产物**：`src-tauri/target/release/bundle/nsis/WorkBench_0.1.0_x64-setup.exe`（lzma，约 1.8 MB）；
+- **产物**：`target/release/bundle/nsis/WorkBench_0.1.0_x64-setup.exe`（lzma，约 1.8 MB）；
   exe 本体 `target/release/workbench.exe` 约 4.2 MB。
+  ⚠️ workspace 化后两者都在**仓库根** `target/` 下（原为 `src-tauri/target/`，见 §3.4 / ADR-19）。
 - **`bundle.targets` 收敛为 `["nsis"]`**：MSI(WiX) 界面几乎无法定制，要出 MSI 时单独跑 `--bundles msi`。
 - **定制项**（`tauri.conf.json` → `bundle.windows.nsis`）：`installMode: "both"`、`languages` + `displayLanguageSelector`、
   `installerIcon` / `uninstallerIcon`、`headerImage`(150×57) / `sidebarImage`(164×314)、`compression: lzma`、`startMenuFolder`。
@@ -657,6 +686,7 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 | ADR-17 | **跨机导入做成一体化向导，且先只读预检再动手（v1.3）** | 「先导入密钥 → 再恢复数据」原本只写在页面的一段说明文字里，顺序靠用户记；做成向导后顺序由程序强制。预检阶段全部只读，指纹不符就在**磁盘零改动**的状态下停住 | ① 只补「导入外部备份包」、保留两步：改动更小，但顺序仍然靠人守；② 先登记后校验：失败时用户磁盘上会多出一份永远解不开的备份包 |
 | ADR-18 | **迁移遇到已含 `workbench.db` 的目标目录一律拒绝（v1.3）** | 原实现用 `overwrite=false` 静默跳过同名文件，然后照样把配置指向目标 —— 表现是「提示已复制并通过校验，重启后打开的却是目标里的旧库」。这种表面成功最有欺骗性，宁可拒绝 | ① 覆盖式迁移：可能毁掉目标那份，还得额外处理空间不足；② 在新目录初始化空库：会让用户以为数据丢了 |
 | ADR-16 | **不做用户可见的操作日志页，只提示日志保存地址（v1.2）** | 已有 `op_log` 表规划，但它要求给「增删改 / 迁移 / 备份」逐一埋点才不是空页面。日志文件的价值在于**完整现场**，再造一个 UI 等于把日志重抄一遍（还必然抄不全）。把地址给用户、让他自己打开看，成本与收益比更划算 | 建 `op_log` 表 + 日志页：埋点散落各处易漏，页面信息量又远不如原始日志 |
+| ADR-19 | **平台能力抽成 `crates/wb-db` + `crates/wb-runtime`，应用壳只依赖它们（v1.4）** | 新项目要复用平台，就得有一条**物理上看得见**的边界和一条单向依赖。抽成 crate 后越界会**立刻**在依赖图上现形；而只写在文档里的边界，没有任何机制拦得住 —— 等某个业务模块长到几千行、`core/shared` 里塞满业务名词时，就再也抽不出来了。同时把 workspace 的三处静默副作用（target 路径 / profile 位置 / indexmap 特征）一并固化 | ① 继续单 crate：改动最小，但边界只活在文档里，拦不住越界，且越晚抽成本越高；② 拆成独立仓库 + 版本引用：边界更硬，但要处理跨仓依赖与发布节奏，而平台「很少更新」的特点让这种隔离收益有限 |
 
 ---
 
@@ -682,6 +712,9 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 | ✅ | 迁移拒绝非空目标（含 `workbench.db`） | v1.3 完成，§7.3 / ADR-18 |
 | ✅ | 跨机导入向导（备份包 + .wbkey 一次收进来） | v1.3 完成，§7.6 / ADR-17 |
 | ✅ | 设置模块拆分（`Settings.tsx` 1082 行 → 壳 + `panels/**`） | v1.3 完成 |
+| ✅ | 平台能力 crate 化（`crates/wb-db` + `crates/wb-runtime`）+ 根 workspace | v1.4 完成，§3.4 / ADR-19 |
+| ⚪ | 前端抽包（`@wb/core` + `@wb/shell`，供多前端工程复用） | 后续（AGENTS §21 第四步） |
+| ⚪ | 脚手架 `templates/app` + `scripts/new-app.mjs`（一条命令开新项目） | 后续（AGENTS §21 第四步） |
 | ⚪ | `op_log` 表 + 操作日志页 | **已决定不做**（ADR-16） |
 | 🟡 | 便携模式（exe 同级 `portable/`） | 后续 |
 | ⚪ | MSI 包 / 自动更新 / 代码签名 | 后续 |
@@ -698,15 +731,17 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 | 前端入口 / 自检 | `src/main.tsx` `src/app/registry.ts` `src/app/router.tsx` |
 | 应用外壳 | `src/app/layout/` |
 | 后端 API 封装 | `src/core/shared/api/index.ts` |
-| 数据库层 | `src-tauri/src/db/mod.rs` + `db/migrations/*.sql` |
-| 存储目录解析 | `src-tauri/src/storage.rs` + `commands/storage.rs` |
-| 迁移（换根目录） | `src-tauri/src/commands/migrate.rs` |
-| 备份与恢复 | `src-tauri/src/backup.rs` + `commands/backup.rs` |
-| 跨机导入（备份包 + 密钥） | `src-tauri/src/transfer.rs` + `commands/transfer.rs` |
+| 仓库结构（平台 crate / 应用壳 / 依赖方向） | 根 `Cargo.toml`（`[workspace]`）· `crates/wb-db/` · `crates/wb-runtime/` · `src-tauri/`（§3.4） |
+| 数据库层 | `crates/wb-db/src/db/mod.rs` + `db/migrations/*.sql` |
+| 存储目录解析 | `crates/wb-db/src/storage.rs` + `crates/wb-runtime/src/commands/storage.rs` |
+| 迁移（换根目录） | `crates/wb-runtime/src/migrate.rs` + `commands/storage.rs`（编排） |
+| 备份与恢复 | `crates/wb-runtime/src/backup.rs` + `crates/wb-runtime/src/commands/backup.rs` |
+| 跨机导入（备份包 + 密钥） | `crates/wb-runtime/src/transfer.rs` + `crates/wb-runtime/src/commands/transfer.rs` |
 | 设置子页 | `src/modules/settings/panels/**`（壳在 `Settings.tsx`，参考线：单文件 ≤ ~300 行） |
-| 加密与密钥 | `src-tauri/src/crypto/mod.rs`（含 `.wbkey` 导出/导入 + 单元测试） |
-| 命令层（设置/插件/密钥/存储） | `src-tauri/src/commands/mod.rs`（`resolve_key` 是密钥策略唯一出处） |
-| 托盘 / 窗口 / 日志 | `src-tauri/src/tray.rs` / `window_state.rs` / `lib.rs` |
+| 加密与密钥 | `crates/wb-runtime/src/crypto/mod.rs`（含 `.wbkey` 导出/导入 + 单元测试） |
+| 命令层（设置/插件/密钥/存储） | `crates/wb-runtime/src/commands/mod.rs`（`resolve_key` 是密钥策略唯一出处） |
+| 命令再导出（跨 crate 的必需项） | `crates/wb-runtime/src/lib.rs` 尾部（原因见 AGENTS §21.4） |
+| 托盘 / 窗口 / 日志 | `crates/wb-runtime/src/tray.rs` / `window_state.rs` / `src-tauri/src/lib.rs` |
 | 打包配置 | `src-tauri/tauri.conf.json` + `scripts/gen-nsis-assets.py` |
 | 图标生成 | `scripts/ai-icons-to-ico.py` |
 | 真机探针 | `scripts/e2e-probe.js` |
@@ -723,11 +758,14 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 | **密钥指纹** | `SHA256(K)[0..8]`，明文存于库中，用于检测密钥与数据是否匹配 |
 | **跨机导入** | 把「备份包 + `.wbkey`」一次收进本机的向导流程（§7.6） |
 | **单边锁** | 进程级单实例 + 应用内单写者连接，确保同一 db 只有一个写入方 |
+| **平台 crate** | `crates/wb-db` / `crates/wb-runtime` —— 与业务无关、可被新项目直接复用的能力（§3.4） |
+| **应用壳** | `src-tauri/` —— 每个项目一份：identifier / 图标 / capabilities / EULA / 命令清单（§3.4） |
 
 ## 附录 C · 修订记录
 
 | 日期 | 版本 | 变更 |
 |---|---|---|
+| 2026-10-05 | v1.4 | ① 平台能力 crate 化（§3.4，ADR-19）：建根 workspace；`storage/db` 抽到 `crates/wb-db`，`crypto/fsutil/backup/transfer/migrate/window_state/tray` + 命令层抽到 `crates/wb-runtime`；`src-tauri` 只剩 `lib.rs` 编排 + 配置 + 图标。② 消除反向依赖：`get_setting_conn` / `set_setting_conn` 从命令层下沉到 `wb-db::settings`。③ 固化 workspace 三处静默副作用：`.gitignore` 忽略根 `/target`、`[profile.release]` 移到根、`indexmap` 特征钉在 `wb-db` 的 `[build-dependencies]`（host 图）。④ 跨 crate 命令的再导出方案定为「函数与 `__cmd__` 宏同在 crate 根」（AGENTS §21.4） |
 | 2026-10-05 | v1.3.1 | 文档一致性修正（无代码改动）：① §8.6 跨机流程标注为已被 §7.6 导入向导取代 —— 原文仍在描述「手工拷贝 `workbench.db` 并覆盖本机库」的旧做法；② §11 设置模块状态由「进行中」改为完成；③ §13 已知限制改为指向 §7.6；④ 修复本表 v1.2 / v1.3 两行的结构错位 |
 | 2026-10-05 | v1.3 | ① 跨机导入向导（§7.6，ADR-17）：只读预检 → 装密钥 → 登记备份包 → 恢复，判定四态含 `replaces_local_key` 的显式确认；新增 `transfer.rs` 与 4 个命令。② 迁移拒绝已含 `workbench.db` 的目标目录（§7.3，ADR-18），迁移逻辑拆到 `commands/migrate.rs`。③ 接入 `tauri-plugin-dialog` 选文件。④ 设置模块拆分（1082 行 → 壳 + `panels/**`） |
 | 2026-10-05 | v1.2 | 备份 / 恢复 / 迁移校验落地（§7.3 / §7.4）；备份包即跨机载体；恢复走待替换文件；日志只提示位置不做页面。新增 ADR-14 / ADR-15 / ADR-16 |

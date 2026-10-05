@@ -26,8 +26,10 @@ use serde::{Deserialize, Serialize};
 // `try_state` 来自 Manager trait，必须显式引入。
 use tauri::{AppHandle, Manager};
 
-use crate::db::{DbPathState, DbState};
-use crate::{crypto, fsutil, storage};
+use wb_db::db::{DbPathState, DbState};
+use wb_db::storage;
+
+use crate::{crypto, fsutil};
 
 /// 备份清单格式标识（日后改结构靠它做兼容判断）。
 pub const FORMAT: &str = "WBBACKUP/1";
@@ -132,7 +134,7 @@ pub struct RestoreReport {
 /// 恢复时要拿它跟本机持有的钥匙比对。
 pub(crate) fn data_fingerprint(db: &DbState) -> String {
     match db.0.lock() {
-        Ok(conn) => crate::commands::get_setting_conn(&conn, crypto::FINGERPRINT_SETTING_KEY)
+        Ok(conn) => wb_db::settings::get_setting_conn(&conn, crypto::FINGERPRINT_SETTING_KEY)
             .unwrap_or_default()
             .unwrap_or_default(),
         Err(_) => String::new(),
@@ -150,7 +152,7 @@ pub(crate) fn local_fingerprint() -> String {
 
 fn auto_mode(db: &DbState) -> String {
     match db.0.lock() {
-        Ok(conn) => crate::commands::get_setting_conn(&conn, SETTING_AUTO)
+        Ok(conn) => wb_db::settings::get_setting_conn(&conn, SETTING_AUTO)
             .unwrap_or_default()
             .unwrap_or_default(),
         Err(_) => String::new(),
@@ -159,7 +161,7 @@ fn auto_mode(db: &DbState) -> String {
 
 fn keep_count(db: &DbState) -> u64 {
     match db.0.lock() {
-        Ok(conn) => crate::commands::get_setting_conn(&conn, SETTING_KEEP)
+        Ok(conn) => wb_db::settings::get_setting_conn(&conn, SETTING_KEEP)
             .unwrap_or_default()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or(DEFAULT_KEEP),
@@ -316,7 +318,7 @@ fn build_snapshot(
     fs::create_dir_all(dir).map_err(|e| format!("创建快照目录失败：{e}"))?;
 
     // 1) WAL 归并：否则快照可能缺最近的事务（AGENTS §6.3）。
-    crate::db::checkpoint_wal(db)?;
+    wb_db::db::checkpoint_wal(db)?;
 
     // 2) 主库 + WAL 附属文件（TRUNCATE 后 -wal 通常为空，但流程上仍要带上）。
     let mut db_bytes = 0u64;

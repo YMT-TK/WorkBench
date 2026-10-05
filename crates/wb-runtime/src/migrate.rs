@@ -19,8 +19,10 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::db::DbState;
-use crate::{fsutil, storage};
+use wb_db::db::DbState;
+use wb_db::storage;
+
+use crate::fsutil;
 
 /// 搬迁的一部分（主库 / media / keys），用于向用户报告。
 #[derive(Serialize)]
@@ -95,7 +97,7 @@ fn run_inner(
     let mut parts = Vec::new();
 
     // WAL 先归并进主库，否则搬过去的是缺最近事务的库（AGENTS §6.3）。
-    crate::db::checkpoint_wal(db)?;
+    wb_db::db::checkpoint_wal(db)?;
 
     // 主库 + WAL 附属文件（`-wal` / `-shm`）
     let mut db_stat = fsutil::CopyStat::default();

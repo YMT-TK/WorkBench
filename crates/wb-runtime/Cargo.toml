@@ -1,0 +1,28 @@
+[package]
+name = "wb-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "WorkBench 平台运行时：密钥 / 备份 / 换目录迁移 / 跨机导入 / 窗口 bounds / 托盘"
+license = "Apache-2.0"
+authors = ["YMT-TK"]
+
+[dependencies]
+# 平台数据层 —— 唯一允许的被依赖方向：wb-runtime → wb-db（AGENTS §21.2）。
+wb-db = { path = "../wb-db" }
+
+# `tray` 模块要用 `tauri::tray::*`，该 API 被 `tray-icon` 特性 gate 住。
+# ⚠️ 特性是**可加**的：应用壳也开了同样的特性，合并后一致。
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+log = "0.4"
+
+# 安全与加密（AGENTS §7 方案 A）：AES-256-GCM 字段级加密 + 主密钥存 OS 凭据库。
+aes-gcm = "0.10"
+base64 = "0.22"
+# Windows 使用凭据管理器（windows-native）；不启用服务端 secret-service 等无关后端。
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# 密钥可移植化（设计文档 §8.4）：口令派生用 Argon2id；密钥指纹用 SHA-256。
+argon2 = "0.5"
+sha2 = "0.10"

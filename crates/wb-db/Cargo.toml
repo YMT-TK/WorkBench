@@ -1,0 +1,28 @@
+[package]
+name = "wb-db"
+version = "0.1.0"
+edition = "2021"
+description = "WorkBench 平台数据层：数据目录布局 + SQLite 连接与迁移执行器"
+license = "Apache-2.0"
+authors = ["YMT-TK"]
+
+[dependencies]
+# 只为了拿到 AppHandle / app_data_dir()，不引任何插件。
+tauri = { version = "2" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+# 🔴 这一条**不是** wb-db 自己要用的，而是为了钉住传递依赖的版本与特性：
+#    `tauri` → `tauri-macros`(proc-macro) → `tauri-utils` → `schemars 0.8.22`，
+#    而 schemars 里写着 `pub type Map<K, V> = indexmap::IndexMap<K, V>` ——
+#    只有 indexmap 1.8.2 **且启用 `std` 特性**时，`S` 才有 `= RandomState` 默认参数，
+#    否则报「struct takes 3 generic arguments but 2 were supplied」。
+#    🔴 必须放在 **`[build-dependencies]`**：schemars 属于 proc-macro 的 **host 依赖图**，
+#    而 resolver = "2" 下 target 与 host 的特性**不统一** —— 挂在 `[dependencies]` 里无效（实测）。
+#    放在**依赖链最下游**（wb-db 是所有应用与运行时的共同叶子）是为了让
+#    `cargo check -p wb-db` / `-p wb-runtime` / `-p workbench` 这类**子集构建**也带上它。
+#    ⛔ 别删、别升级版本 —— 详见根 `Cargo.toml` 的 `[workspace.dependencies]`。
+[build-dependencies]
+indexmap = { workspace = true }

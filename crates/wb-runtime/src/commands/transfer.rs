@@ -13,7 +13,7 @@ use tauri::{AppHandle, State};
 
 use crate::backup::BackupItem;
 use crate::crypto::WbkeyHeader;
-use crate::db::DbState;
+use wb_db::db::DbState;
 use crate::transfer::{self, PackInfo, Precheck};
 
 /// 只读 `.wbkey` 的**明文头**（`fp` / `created`）—— **不需要口令**。

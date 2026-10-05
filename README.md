@@ -80,7 +80,7 @@
 | `window.json` | 同上 | 窗口几何描述的是**这台机器 + 这块屏**，不是这份数据；换盘搬迁不该把窗口尺寸一起搬走 |
 
 - 子目录**惰性创建**（第一次用到才 `create_dir_all`），不在启动时无脑铺一堆空目录。
-- 🔴 子目录名与拼接**只允许出现在 `src-tauri/src/storage.rs`**；其余代码一律调
+- 🔴 子目录名与拼接**只允许出现在 `crates/wb-db/src/storage.rs`**；其余代码一律调
   `db_path` / `media_dir` / `backup_dir` / `keys_dir` / `logs_dir`（含日志目录，见下）。
 - ⚠️ 改根目录**重启后生效**——数据库连接在 `setup` 阶段就打开了，无法热切换；前端据 `pendingDir != runningDir` 提示「需重启」。
 - 日志目录同样跟随根目录（`lib.rs::log_dir` → `storage::logs_dir`），所以**改根目录后日志也要重启才跟着走**。
@@ -309,23 +309,40 @@ src/modules/settings/         # 设置模块（视图与请求编排分开）
       ├─ useStorageData.ts    #     统一加载 + 单一 reload
       └─ keyState.ts          #     密钥三态 → 界面横幅
 
-src-tauri/src/                # Rust 后端
-├─ lib.rs                     #   应用入口：插件注册、setup、命令注册
-├─ commands/                  #   前端唯一可调用的命令层
-│  ├─ mod.rs                  #     设置 / 插件 / 密钥命令
-│  ├─ storage.rs              #     数据根目录与迁移编排
-│  ├─ migrate.rs              #     迁移内核（拒绝规则 + 回滚）
-│  ├─ backup.rs               #     备份 / 恢复 / 快照列表
-│  └─ transfer.rs             #     跨机导入 4 个命令
-├─ db/                        #   SQLite 连接 + migration 执行器 + migrations/
-├─ crypto/                    #   AES-256-GCM + OS 凭据库 + .wbkey
-├─ storage.rs                 #   根目录解析 + 相对布局（唯一定义处）
-├─ fsutil.rs                  #   带校验复制（复制后回读比对 SHA-256）+ 回滚清单
-├─ backup.rs                  #   快照内核：目录结构 + manifest（WBBACKUP/1）
-├─ transfer.rs                #   跨机导入内核：预检判定 + 规范化 + 登记
-├─ tray.rs                    #   系统托盘 +「关闭到托盘」
-└─ window_state.rs            #   窗口尺寸/位置持久化（含坏坐标防护）
+crates/                       # 🔴 平台能力（与业务无关，新项目可直接复用）
+├─ wb-db/src/                 #   数据「在哪 / 怎么存」
+│  ├─ storage.rs              #     根目录解析 + 相对布局（唯一定义处）
+│  ├─ settings.rs             #     app_settings 读写原语（连接级）
+│  └─ db/                     #     SQLite 连接 + migration 执行器 + migrations/
+└─ wb-runtime/src/            #   平台「能做什么」
+   ├─ crypto/                 #     AES-256-GCM + OS 凭据库 + .wbkey
+   ├─ fsutil.rs               #     带校验复制（回读比对 SHA-256）+ 回滚清单
+   ├─ backup.rs               #     快照内核：目录结构 + manifest（WBBACKUP/1）
+   ├─ migrate.rs              #     换数据根目录的搬迁内核（拒绝规则 + 回滚）
+   ├─ transfer.rs             #     跨机导入内核：预检判定 + 规范化 + 登记
+   ├─ tray.rs                 #     系统托盘 +「关闭到托盘」
+   ├─ window_state.rs         #     窗口尺寸/位置持久化（含坏坐标防护）
+   ├─ lib.rs                  #     模块声明 + 命令函数在 crate 根的再导出
+   └─ commands/               #     #[tauri::command] 门面
+      ├─ mod.rs               #       设置 / 插件 / 密钥 / 进程
+      ├─ storage.rs           #       数据根目录与迁移编排
+      ├─ backup.rs            #       备份 / 恢复 / 快照列表
+      └─ transfer.rs          #       跨机导入 4 个命令
 
+Cargo.toml                    # workspace 根：members + profile.release + indexmap 钉版
+
+src-tauri/                    # 应用壳（每个项目一份）
+├─ src/lib.rs                 #   编排：初始化顺序 + invoke_handler 命令清单
+├─ tauri.conf.json            #   identifier / 产品名 / 图标 / NSIS
+├─ capabilities/              #   原生权限
+└─ icons/ · EULA.txt
+```
+
+**依赖方向只允许单向**：`src-tauri`（应用壳）→ `crates/wb-runtime` → `crates/wb-db`。
+反向依赖**不会报编译错误**，只会在想复用平台时才发现已经粘死 —— 所以这条边界写进了
+`AGENTS.md` §3 规约 7，并在 §3.4 / ADR-19 记录了取舍。
+
+```
 scripts/
 ├─ dev-app.mjs                # 真机一键启动器（绕开 tauri dev 的管道问题）
 ├─ e2e-probe.js               # dev 期端到端探针（真 WebView 内自动点击验证）
@@ -390,7 +407,8 @@ python scripts/probe-report.py .workbuddy/e2e.log
 CARGO_INCREMENTAL=0 npx tauri build     # 先停 dev:app
 ```
 
-- 产物：`src-tauri/target/release/bundle/nsis/WorkBench_0.1.0_x64-setup.exe`（lzma，约 1.8 MB）
+- 产物：`target/release/bundle/nsis/WorkBench_0.1.0_x64-setup.exe`（lzma，约 1.8 MB）
+  （⚠️ workspace 化后产物在**仓库根** `target/`，不再是 `src-tauri/target/`）
 - `bundle.targets` 收敛为 `["nsis"]`（要 MSI 时单独 `--bundles msi`）
 - NSIS 定制：`installMode: "both"`（⚠️ 恒需管理员权限、安装时必弹 UAC）+ 中英双语语言选择器 +
   自定义 header / sidebar 位图（由 `scripts/gen-nsis-assets.py` 生成，必须是 24bit BMP 且尺寸严格）

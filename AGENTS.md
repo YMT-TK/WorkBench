@@ -23,7 +23,7 @@
 | 前端 | **React + TypeScript** | UI 与状态 |
 | 样式 | **Tailwind CSS** + CSS 变量（设计令牌） | 组件只写语义类名，不写死颜色 |
 | 本地库 | **SQLite**（`rusqlite`，Rust 同步） | 单文件 `workbench.db` |
-| 原生能力 | Rust commands（`src-tauri/src/commands/`） | 文件/ffmpeg/git/settings |
+| 原生能力 | Rust commands（`crates/wb-runtime/src/commands/`） | 文件/ffmpeg/git/settings |
 | 音视频 | **ffmpeg**（sidecar，`binaries/ffmpeg.exe`） | 随包分发 |
 
 **禁止**：为单机工具引入 MySQL / Postgres / 常驻服务进程（见设计文档 6.1）。
@@ -45,7 +45,7 @@
 
 ---
 
-## 3. 模块化规约（六条铁律，违反即返工）
+## 3. 模块化规约（七条铁律，违反即返工）
 
 > 每条含：✅ 必须 / ⛔ 禁止 / 📌 示例。AI 写代码前对照自检。
 
@@ -81,13 +81,33 @@
 
 ### 规约 5 — 前端不直接碰系统层
 - ✅ 一切文件/数据库/原生操作，经 `core/shared/api`（invoke 封装）调用 Rust commands。
-- ✅ 权限校验、路径校验集中在 **Rust 侧**（`src-tauri/src/commands/`）。
+- ✅ 权限校验、路径校验集中在 **Rust 侧**（`crates/wb-runtime/src/commands/`）。
 - ⛔ 前端不得直接读 `fs`、直连 SQLite、拼原生路径。
 
 ### 规约 6 — 插件互不可见
 - ✅ Widget 之间**不 import、不互相通信**。
 - ✅ 需要共享数据（如天气位置）：由插件自己在 `plugins.config` 存取，或通过事件广播。
 - ⛔ 禁止 Widget A 依赖 Widget B。
+
+### 规约 7 — 平台能力与业务模块的分界 🔴
+> 本仓库是**平台 / 框架**，后续要在它之上开新项目（§21）。所以「平台」与「业务」必须能在目录上一眼分清。
+
+- ✅ 平台能力（与业务无关）只放两处：
+  - **`crates/wb-db/`** —— 数据位置与连接：`storage.rs`（数据目录布局唯一出处）、
+    `db/`（连接 + 迁移执行器 + `app_settings` / `plugins` / `layouts` 三张平台表）、
+    `settings.rs`（设置读写原语，连接级）。
+  - **`crates/wb-runtime/`** —— 平台运行时：`crypto` / `fsutil` / `backup` / `transfer` /
+    `migrate` / `window_state` / `tray`，以及 `commands/`（这些能力的命令门面）。
+- ✅ 业务功能只放 `src/modules/<id>/` + `src/widgets/<id>/`，以及**自己的表**（`proj_` / `audio_` …）。
+- ⛔ **`crates/**` 与 `src/core/**` 里不许出现业务名词**（`proj_` / `audio_` / 具体业务字段）。
+  判据一句话：**换个完全不相干的业务，这段代码还能原样用吗？** 不能，就说明它放错层了。
+- 🔴 **依赖方向只允许单向**：`src-tauri`（应用壳）→ `crates/wb-runtime` → `crates/wb-db`。
+  ⛔ 反向依赖（`wb-db` 引用 `wb-runtime`，或 `crates/**` 反向引用某个业务模块）一旦出现，
+  平台就再也抽不出来了。**这条比编译错误更危险，因为它根本不报错。**
+  📌 历史教训：`backup.rs` 曾引用 `commands::get_setting_conn`（运行时反向依赖命令层），
+  已把该原语下沉到 `wb-db::settings` 消除。
+- ⛔ 业务模块之间不许互相 import（规约 3）；业务模块不许被 `crates/**` 引用。
+- 📌 新增平台能力的落点：与「**数据在哪 / 怎么存**」有关 → `wb-db`；与「**能做什么**」有关 → `wb-runtime`。
 
 ---
 
@@ -103,17 +123,36 @@ src/
 │  └─ shared/          # api / components / hooks / utils
 ├─ modules/            # 一级功能模块（data-center/project-manager/audio-manager/settings）
 └─ widgets/            # 数据中心插件（weather/account/loan-reminder/todo…）
-src-tauri/src/
-├─ commands/           # mod.rs（设置/插件/进程）+ storage.rs（数据目录）…
-├─ db/                 # mod.rs（连接+migration 执行器）/ migrations/（0001_init.sql…）
-├─ storage.rs          # 数据目录解析 + storage.json 引导配置（§20）
-├─ tray.rs             # 系统托盘 + 关闭到托盘（§19）
-└─ plugins/            # 仅当某插件需原生能力时才建
+
+crates/                # 🔴 平台能力：与业务无关，可被新项目直接复用（§21）
+├─ wb-db/              # 数据「在哪 / 怎么存」
+│  └─ src/
+│     ├─ storage.rs    #   数据根目录 + 固定相对布局（§20）
+│     ├─ settings.rs   #   app_settings 读写原语（连接级，供运行时复用）
+│     └─ db/           #   DbState / DbPathState / 迁移执行器 / migrations/
+└─ wb-runtime/         # 平台「能做什么」
+   └─ src/
+      ├─ crypto/       #   AES-GCM 字段加密 + .wbkey 口令封装 + 指纹（§7 / §8）
+      ├─ fsutil.rs     #   带 SHA-256 校验的复制 + 回滚（备份与迁移共用）
+      ├─ backup.rs     #   快照 / 恢复 / 自动备份（§7.4）
+      ├─ migrate.rs    #   换数据根目录的搬迁内核（§7.3）
+      ├─ transfer.rs   #   跨机导入内核（§7.6）
+      ├─ tray.rs       #   系统托盘 + 关闭到托盘（§19）
+      ├─ window_state.rs  # 窗口 bounds 持久化（§14）
+      └─ commands/     #   上述能力的 #[tauri::command] 门面
+
+src-tauri/             # 应用壳：每个项目一份，新项目从模板生成（§21）
+├─ src/lib.rs          #   编排：初始化顺序 + invoke_handler 命令清单
+├─ src/main.rs
+├─ tauri.conf.json     #   identifier / 产品名 / 图标 / NSIS（每项目必改）
+├─ capabilities/       #   原生权限（每项目按需）
+└─ icons/ · EULA.txt
 binaries/ffmpeg.exe     # sidecar 随包分发
 ```
 
 **命名约定**
 - Widget / 模块目录用**短横线 kebab-case**（如 `loan-reminder`）。
+- 平台 crate 用 `wb-` 前缀（`wb-db` / `wb-runtime`），与业务模块一眼可分。
 - 数据表加**模块前缀物理隔离**：`proj_`（项目管理）、`audio_`（音频）、`app_`（应用级）。
 - 注册表 id 与目录名、表前缀保持一致，避免歧义。
 
@@ -124,7 +163,7 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 **文件位置**：默认 `app_data_dir\WorkBench\workbench.db`，可在「设置 → 存储」里把**数据根目录**改到任意绝对路径（§20）。
 - 🔴 **用户唯一可配的是「根目录」**，其下按固定相对布局展开（设计文档 §7.1）：
   `workbench.db` / `media/`（媒体） / `backup/`（备份） / `keys/`（密钥文件） / `logs/`（日志）。
-  ⛔ 子目录名与拼接只允许出现在 `src-tauri/src/storage.rs`，别处一律调 `db_path / media_dir / backup_dir / keys_dir / logs_dir`。
+  ⛔ 子目录名与拼接只允许出现在 `crates/wb-db/src/storage.rs`，别处一律调 `db_path / media_dir / backup_dir / keys_dir / logs_dir`。
 - 默认：`app_data_dir\WorkBench\`
 - 可配置：引导文件 `app_data_dir\WorkBench\storage.json` 写 `{"dataDir": "D:\\..."}`；空/缺省 = 回到默认
 - 便携：检测到 exe 同目录 `portable/` 则用相对路径（**未实现**，后续迭代）
@@ -152,7 +191,7 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 - 导入式：复制到 `media/<module>/` 再存库（占用空间但完全托管）。
 
 **迁移 / 备份 / 导出**
-- 🔴 备份与迁移共用 `src-tauri/src/fsutil.rs` 的**带校验复制**：每个文件复制后回读比对 SHA-256，
+- 🔴 备份与迁移共用 `crates/wb-runtime/src/fsutil.rs` 的**带校验复制**：每个文件复制后回读比对 SHA-256，
   不一致即删目标并报错；迁移还按「本次新建清单」整体回滚，且**不改写配置**（§20.2）。
 - 路径修改走「迁移向导」：**先复制 + hash 校验 → 再重指向 → 最后才清旧**，任一环节失败回滚。
   ⛔ 必须连 `media/` 与 `keys/` 一起搬 —— 只搬主库会让媒体文件静默丢失。
@@ -244,7 +283,7 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 - [x] 4. 单实例保护：Tauri single-instance，确保同一 db 只有一个进程写（单边锁的进程层保障）；第二实例参数经 `secondary-instance` 事件转发给前端。
 - [x] 5. 主题与令牌：CSS 变量 + `ThemeProvider` + 跟随系统；已补 `danger` 令牌（错误通知用）。
 - [x] 6. 通知系统（§10）：`<ToastProvider>` + `notify()`，四级等级（success/info/warning/error）。
-- [x] 7. 错误日志与异常处理（§11）：`ErrorBoundary` + `tauri-plugin-log`（写 `app_data_dir/WorkBench/logs/`，5MB 滚动、保留 10 份）+ panic 崩溃兜底（`crash-*.log`）+ 前端统一 `reportError`（技术细节入日志、用户见友好文案）。**用户可见「操作日志」页面待阶段二设置模块落地。**
+- [x] 7. 错误日志与异常处理（§11）：`ErrorBoundary` + `tauri-plugin-log`（写 `<数据根目录>/logs/`，5MB 滚动、保留 10 份）+ panic 崩溃兜底（`crash-*.log`）+ 前端统一 `reportError`（技术细节入日志、用户见友好文案）。**用户可见「操作日志」页面待阶段二设置模块落地。**
 - [x] 8. 窗体尺寸与分辨率适配（§14）：`window_bounds` 持久化（`window.json`）、最小尺寸 860×560、按内容区宽度的响应式断点（ResizeObserver）、相对单位 + 令牌间距。
 - [x] 9. 安全与加密基础（§7）：AES-256-GCM 字段级加解密 + 主密钥存 OS 凭据库（keyring, windows-native）+ `secure_set/get_setting` 命令 + 密钥导出备份；密钥绝不明文入库/写配置。
 - [x] 10. 侧边栏框架 + 路由守卫（§15）：模块清单驱动渲染、`hidden_modules` 隐藏/显示联动、当前页隐藏自动跳数据中心 + `notify('info')`、系统模块（数据中心/设置）常驻。
@@ -273,11 +312,11 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 
 | 主题 | 实现位置 | 关键约定 |
 |---|---|---|
-| 数据库 | `src-tauri/src/db/mod.rs` + `db/migrations/*.sql` | `PRAGMA user_version` 版本化，追加式迁移；WAL + busy_timeout；`Mutex<Connection>` 单写者 |
-| 命令层 | `src-tauri/src/commands/mod.rs` | `Result<T, String>`；前端一律经 `src/core/shared/api` 调用 |
-| 日志 | `src-tauri/src/lib.rs` | `tauri-plugin-log` → `app_data_dir/WorkBench/logs/`；panic → `crash-*.log` |
-| 加密 | `src-tauri/src/crypto/mod.rs` | AES-256-GCM；主密钥存 OS 凭据库（keyring windows-native） |
-| 窗体 | `src-tauri/src/window_state.rs` + `tauri.conf.json` | bounds 存 `WorkBench/window.json`；`minWidth/minHeight` = 860×560 |
+| 数据库 | `crates/wb-db/src/db/mod.rs` + `db/migrations/*.sql` | `PRAGMA user_version` 版本化，追加式迁移；WAL + busy_timeout；`Mutex<Connection>` 单写者 |
+| 命令层 | `crates/wb-runtime/src/commands/mod.rs` | `Result<T, String>`；前端一律经 `src/core/shared/api` 调用 |
+| 日志 | `src-tauri/src/lib.rs` | `tauri-plugin-log` → `<数据根目录>/logs/`；panic → `crash-*.log` |
+| 加密 | `crates/wb-runtime/src/crypto/mod.rs` | AES-256-GCM；主密钥存 OS 凭据库（keyring windows-native） |
+| 窗体 | `crates/wb-runtime/src/window_state.rs` + `tauri.conf.json` | bounds 存 `WorkBench/window.json`；`minWidth/minHeight` = 860×560 |
 | 布局引擎 | `src/core/layout-engine/` | 拖拽排序 → `app_settings: layout:<scope>`，debounce 300ms |
 | 通知 | `src/core/shared/components/Toast.tsx` | 模块级 `notify()`，与 event-bus 解耦 |
 | 错误上报 | `src/core/shared/utils/errors.ts` | `reportError(err, 友好文案)`；全局兜底在 `main.tsx` 安装 |
@@ -340,7 +379,7 @@ binaries/ffmpeg.exe     # sidecar 随包分发
   当前范围是模块跳转，跨模块内容检索（项目/音频）留待各模块有数据后扩展。
 
 ### B. 桌面专属能力（Tauri）🟡
-- ✅ **系统托盘 + 最小化到托盘**（已落地 2026-10-04）：`src-tauri/src/tray.rs`，顶栏 ✕ 默认收进托盘、
+- ✅ **系统托盘 + 最小化到托盘**（已落地 2026-10-04）：`crates/wb-runtime/src/tray.rs`，顶栏 ✕ 默认收进托盘、
   托盘左键单击还原、右键菜单「退出」才真正关进程（§19）。
 - 全局快捷键（唤起窗口、快捷操作）。
 - 开机自动启动（设置里开关）。
@@ -386,7 +425,7 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 > 症状对照：**「进程在跑、日志一切正常，但点托盘图标 / 任务栏怎么都调不出窗口」** ——
 > 九成是 `window.json` 存了坏坐标，启动时把窗口还原到了屏幕外。
 
-实现见 `src-tauri/src/window_state.rs`。三条防线缺一不可：
+实现见 `crates/wb-runtime/src/window_state.rs`。三条防线缺一不可：
 
 1. **最小化期间禁止落盘**。Windows 会把最小化窗口挪到 `(-32000, -32000)`、尺寸也变成图标尺寸
    （实测被写成 `235x128`）。`Resized` / `Moved` 事件在最小化时会带着这组哨兵值触发，
@@ -687,7 +726,7 @@ useHeaderActions(actions); // 渲染到 TopBar 右侧，模块卸载时自动清
 > 桌面应用最容易被骂的体验：用户想「先收起来」，手却点在右上角 ✕，进程直接没了，
 > 未保存的现场一起没。对策是把 ✕ 的语义降级为「收进托盘」，真退出只留在托盘菜单里。
 
-实现：`src-tauri/src/tray.rs`（Rust 侧全权处理，前端不需要任何权限声明）。
+实现：`crates/wb-runtime/src/tray.rs`（Rust 侧全权处理，前端不需要任何权限声明）。
 
 - **托盘图标**：`TrayIconBuilder::with_id("main-tray")`，图标复用 `app.default_window_icon()`，
   ⛔ 不要再引 `image-png` / `image-ico` 特性——编译期已内嵌解码好的 `Image`，直接用即可。
@@ -718,7 +757,7 @@ useHeaderActions(actions); // 渲染到 TopBar 右侧，模块卸载时自动清
 > 「我的数据库到底存在哪？能不能放到 D 盘？」——必须有明确的、可改的答案。
 > 🔴 完整的存储与目录模型见**设计文档 §7**（本文只记本仓库的落地约定）。
 
-实现：`src-tauri/src/storage.rs`（路径解析）+ `src-tauri/src/commands/storage.rs`（命令层）。
+实现：`crates/wb-db/src/storage.rs`（路径解析）+ `crates/wb-runtime/src/commands/storage.rs`（命令层）。
 
 ### 20.1 根目录 + 固定相对布局
 
@@ -758,3 +797,162 @@ useHeaderActions(actions); // 渲染到 TopBar 右侧，模块卸载时自动清
 - ⚠️ `app_settings` 里的 `db_path` 不再使用（历史写法）；路径的**唯一来源**是 `storage.json`，
   避免两处配置互相打架。
 - 🟡 待办：便携模式（exe 同级 `portable/`）、一键/自动备份（用 `storage::backup_dir`）。
+
+---
+
+## 21. 平台复用：新项目如何开工【2026-10-05 落地】
+
+> 本仓库是**平台 / 框架**（§3 规约 7）。新项目不从零起 —— 复用平台能力，只换一份应用壳。
+
+### 21.1 结构：一个 Cargo workspace + 一个前端工程
+
+```
+<仓库根>/Cargo.toml         # [workspace] members = ["crates/wb-db", "crates/wb-runtime", "src-tauri"]
+├─ crates/wb-db             # 平台能力：数据「在哪 / 怎么存」
+├─ crates/wb-runtime        # 平台能力：能做什么
+└─ src-tauri/               # 应用壳（每个项目一份）
+```
+
+- 🔴 **根 `Cargo.toml` 是 workspace 的唯一出处**：`crates/*` 与 `src-tauri` 都是成员，
+  所以在仓库根跑 `cargo check` / `cargo test` 就等于跑全平台。
+- ⚠️ **构建产物路径随之改变**：目标目录是 **`<仓库根>/target/`**，不再是 `src-tauri/target/`。
+  NSIS 安装包因此落在 `target/release/bundle/nsis/WorkBench_<版本>_x64-setup.exe`。
+  `.gitignore` 必须忽略 `/target`（旧的 `src-tauri/target/` 可留着兼容）。
+
+### 21.2 依赖方向（唯一允许的方向）
+
+```
+src-tauri  →  wb-runtime  →  wb-db
+（应用壳）     （平台能力）     （数据位置与连接）
+```
+
+⛔ 反向依赖一律不允许。它**不会报编译错误**，只会在你想复用平台时才发现已经粘死。
+🔴 扩展平台时自查一句：「这段代码与业务有关吗？」有关 → 它属于 `src/modules/`，不属于 `crates/`。
+
+### 21.3 新项目要改的东西（全在应用壳里）
+
+| 位置 | 改什么 |
+|---|---|
+| `src-tauri/tauri.conf.json` | `productName` / `identifier` / `version` / 图标 / NSIS 文案 |
+| `src-tauri/capabilities/default.json` | 按需增删原生权限 |
+| `src-tauri/icons/`、`EULA.txt` | 换成该项目的图标与许可 |
+| `src-tauri/src/lib.rs` | `invoke_handler!` 挂哪些命令（平台命令从 `wb-runtime` 引） |
+| `src/modules/<id>/` | 业务模块，自注册即可（规约 2） |
+| `db/migrations/` | **追加**该项目的表（如 `proj_*`），⛔ 不动平台三表 |
+
+### 21.4 🔴 跨 crate 命令的坑：**函数与命令宏必须同在 crate 根**
+
+`#[tauri::command]` 作用在 `pub fn` 上时，除了函数本身还会生成一个
+**`#[macro_export]` 的 `__cmd__<函数名>` 宏** —— `generate_handler!` 正是靠它派发请求的。
+写 `wb_runtime::get_setting` 时，它会被展开成：
+
+```rust
+wb_runtime::__cmd__get_setting!(wb_runtime::get_setting, invoke)
+```
+
+**两条路径都得解析得到**。而 `#[macro_export]` 只把宏放在**定义它的那个 crate 的根**，
+所以 `commands::storage::storage_info` 这类路径必然**找不到宏**。
+
+⛔ 试过的两条死路（都报 `cannot determine resolution for the import`）：
+在命令模块里 `pub use crate::{__cmd__xxx}`（绝对路径）或 `pub use super::super::{__cmd__xxx}`（相对路径）——
+**macro-expanded 的 `macro_export` 宏在同一个 crate 内根本没法被 `use` 引用**（rust issue #52234）。
+
+✅ 唯一可行：**让函数也待在 crate 根**，与宏同处一地。
+
+```rust
+// crates/wb-runtime/src/lib.rs
+pub use commands::{
+    app_quit, get_setting, set_setting, list_plugins, update_plugin, /* … */
+};
+pub use commands::storage::{storage_info, storage_open_dir, storage_set_dir};
+```
+
+应用侧**写完整 crate 路径**（命令名只取路径末段，IPC 名不受影响）：
+
+```rust
+.invoke_handler(tauri::generate_handler![
+    wb_runtime::get_setting,
+    wb_runtime::storage_info,
+    // …
+])
+```
+
+⚠️ 别写成 `use wb_runtime::get_setting;` 再用短名 —— `use` 只把**函数**带进来，
+那条 `__cmd__` 宏不在作用域里，照样报「找不到宏」。
+
+📌 新增平台命令时：在 `crates/wb-runtime/src/commands/**` 里照常写 `#[tauri::command] pub fn`，
+再到 `crates/wb-runtime/src/lib.rs` 的根再导出清单里**顺手补一行**。
+
+### 21.5 新增依赖的落点
+
+- 只有平台能力需要的（`aes-gcm` / `argon2` / `keyring` / `rusqlite` …）→ 写进 **`crates/*/Cargo.toml`**。
+- 只有应用壳需要的（`tauri-plugin-*` 等）→ 写进 `src-tauri/Cargo.toml`。
+- ⛔ 别把业务依赖塞进平台 crate —— 那等于替所有未来项目做了决定。
+
+#### 特例：`indexmap`（⛔ 别删、别升级）
+
+它**不是**任何 crate 真正要用的依赖，而是为 **`schemars 0.8.22`** 钉住的：
+`schemars` 里写着 `pub type Map<K, V> = indexmap::IndexMap<K, V>`，只有 **indexmap 1.8.2 + 启用 `std`**
+时 `S` 才有 `= RandomState` 默认参数，否则报「struct takes 3 generic arguments but 2 were supplied」。
+
+- 版本与特性写在**根 `Cargo.toml`** 的 `[workspace.dependencies]`（`=1.8.2`, `features = ["std"]`）。
+- 引入点在 **`crates/wb-db` 的 `[build-dependencies]`**，⚠️ **不能**写进 `[dependencies]`：
+  `schemars` 属于 proc-macro 的 **host 依赖图**，而 `resolver = "2"` 下 target 与 host 的特性
+  **不统一** —— 实测挂在 `[dependencies]` 里完全无效。放在最下游的 `wb-db` 是为了让
+  `cargo check -p wb-db` / `-p wb-runtime` / `-p workbench` 这类**子集构建**也带上它。
+
+#### 特例：`[profile.release]` 必须在根
+
+cargo 会**忽略非根包**里的 profile 定义
+（`warning: profiles for the non root package will be ignored`）。
+留在 `src-tauri/Cargo.toml` 里等于 `opt-level="z"` / `lto` / `codegen-units=1` / `strip` / `panic="abort"`
+**全部失效**，安装包会明显变大。
+
+### 21.6 🔴 平台与业务的提交纪律
+
+平台更新能不能回流到各个项目，**全看提交有没有按目录分开**。
+
+**边界表**（新项目的继承策略）：
+
+| 目录 | 归属 | 新项目怎么办 |
+|---|---|---|
+| `crates/wb-db/**`、`crates/wb-runtime/**` | 🟦 平台 | ✅ 原样继承 |
+| `src/core/**`、`src/app/**` | 🟦 平台 | ✅ 原样继承 |
+| `src/modules/settings/**`、`src/modules/data-center/**` | 🟦 平台（基础设施模块） | ✅ 继承，可按需裁剪 |
+| 根 `Cargo.toml` / `.gitignore` / `.gitattributes` / `scripts/**` | 🟦 平台 | ✅ 继承 |
+| `src-tauri/**` | 🟨 应用壳 | ⚠️ 继承后**必改**（产品名 / identifier / 图标 / 命令清单） |
+| `src/modules/<业务>/**`、`src/widgets/<业务>/**` | 🟧 业务 | ⛔ 不带过去 |
+| 业务表迁移（`00xx_<业务>.sql`） | 🟧 业务 | ⛔ 不带过去 |
+
+- 🔴 **平台改动必须独立成 commit，不与业务改动混在一起。**
+  判据：`git show --stat <commit>` 里只出现 🟦 那几行的路径。
+- 🔴 **为什么**：项目吸收平台更新靠 `git cherry-pick <平台提交>`。平台改动一旦和业务改动
+  混进同一个提交，就得手工剥离 —— 现实中几乎没人这么干，结果就是「干脆不升级」，
+  平台在各项目里各自漂移，最后彻底无法合并。**这条纪律一破，模板复用就等于没有。**
+- 📌 提交信息前缀：平台改动用 `refactor(platform):` / `fix(platform):` / `feat(platform):`；
+  业务改动用 `feat(<模块>):`。看前缀就知道能不能 cherry-pick。
+- ⛔ 平台目录里不许出现业务名词（§3 规约 7）—— 与提交纪律是**同一件事的两面**：
+  目录分不清，提交自然也分不清。
+
+### 21.7 版本与分支策略
+
+- ⛔ **不要**给每个项目开一条长期分支。业务模块要**同时存在**（数据中心插件模型就是多模块共存），
+  分支之间互斥、合并必冲突；平台修一个 bug 还得在 N 个分支里各改一遍。
+- ✅ 正确的做法：**本仓库 = 平台仓库**；新项目**另开仓库**、用**模板**生成，靠 remote 回流。
+
+| 动作 | 做法 |
+|---|---|
+| 标记一个可复用版本 | `git tag -a v0.1.1 -m "…"`；`main` 始终保持在可发布状态 |
+| 新项目开工 | `gh repo create <proj> --template YMT-TK/WorkBench --private` |
+| 接入平台上游 | `git remote add upstream ssh://git@ssh.github.com:443/YMT-TK/WorkBench.git` |
+| 吸收平台更新 | `git fetch upstream && git merge upstream/main` |
+| 只挑某个平台修复 | `git cherry-pick <平台 commit>`（靠 §21.6 的前缀识别） |
+
+- 🔴 **每个新项目要记下自己基于哪个平台 tag**（如 `v0.1.1`）—— 平台升级才不会意外破坏已有项目。
+  给旧项目补平台修复走 `release/0.1` 分支 hotfix，再往前 merge，而不是直接在旧的线上改。
+- ⚠️ **新仓库 clone 后，本机的 `core.sshCommand` 不跟着走**（443 + 自定义 `known_hosts` 属本地配置，
+  不进版本库）→ 新项目要重设一次。
+- 📌 **暂时不抽私有包**：Rust 侧 Cargo 虽原生支持 git 依赖（`{ git = "…", tag = "v0.1.1" }`，无需私有 registry），
+  但要先把 `crates/` 拆成独立仓库，代价是改一个平台 API 得跨两个仓库提交两次。
+  前端 UI 迭代频率远高于 Rust，打包会变成「每改一处都发版」。
+  **判据：等有第 2~3 个项目、且平台 API 稳定了再抽 —— 只有一个消费者时，拆开只剩摩擦。**

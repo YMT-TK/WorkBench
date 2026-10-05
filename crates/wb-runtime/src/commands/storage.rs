@@ -8,9 +8,11 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::commands::migrate as migrate_cmd;
-use crate::db::{DbPathState, DbState};
-use crate::{fsutil, storage};
+use crate::migrate as migrate_cmd;
+use wb_db::db::{DbPathState, DbState};
+use wb_db::storage;
+
+use crate::fsutil;
 
 /// 数据存储概况（字段驼峰，直接给前端用）。
 #[derive(Serialize)]

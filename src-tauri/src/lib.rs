@@ -1,20 +1,21 @@
 // WorkBench 桌面应用入口（Tauri 2）。
-// 「系统级」底座：单实例保护、系统托盘、窗体尺寸持久化、日志、数据库连接、插件注册。
-
-mod backup;
-mod commands;
-mod crypto;
-mod db;
-mod fsutil;
-mod storage;
-mod transfer;
-mod tray;
-mod window_state;
+//
+// 🔴 本文件是**应用壳**：只做「编排」—— 初始化顺序 + 命令清单，不实现任何平台能力。
+//    平台能力来自两个 crate（AGENTS §3 规约 7 / §21）：
+//      · `wb-db`      数据「在哪 / 怎么存」—— 目录布局 + 连接 + 迁移执行器
+//      · `wb-runtime` 平台「能做什么」—— 密钥 / 备份 / 换目录迁移 / 跨机导入 / 托盘 / 窗口 bounds
+//    新项目从 `templates/app` 生成时，改的就是本文件的编排、`tauri.conf.json` 与图标。
+//
+// ⚠️ 命令一律写**完整 crate 路径**（`wb_runtime::get_setting`），不要先 `use` 进来再写短名：
+//    `generate_handler!` 会把路径末段换成 `__cmd__` 前缀去找包装宏，而那条宏只落在
+//    `wb-runtime` 的 crate 根 —— 短名会让它去应用壳里找，找不到。详见 `wb-runtime/src/lib.rs` 的说明。
 
 use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+use wb_db::{db, storage};
+use wb_runtime::{backup, tray, window_state};
 
 /// 第二实例启动时的转发载荷（经 Tauri 事件发给前端，AGENTS §9 任务4）。
 /// 前端用 `listen("secondary-instance", ...)` 接收。
@@ -27,7 +28,7 @@ struct SecondaryInstancePayload {
 /// 解析日志目录：`<数据根目录>/logs`（设计文档 §7.5）。
 /// 🔴 跟随用户自定义的数据根目录 —— 此前固定在 `app_data_dir`，与其余内容不一致。
 fn log_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    crate::storage::logs_dir(app).ok()
+    storage::logs_dir(app).ok()
 }
 
 /// 安装崩溃兜底：panic 时写独立 `crash-*.log`，便于下次启动提示上报（AGENTS §11）。
@@ -101,7 +102,7 @@ pub fn run() {
             let handle = app.app_handle().clone();
             let logs = log_dir(&handle);
 
-            // 调试日志：写入 app_data_dir/WorkBench/logs/，按大小滚动、保留最近 10 份（AGENTS §11）。
+            // 调试日志：写入 <数据根目录>/logs/，按大小滚动、保留最近 10 份（AGENTS §11）。
             if let Some(dir) = logs.clone() {
                 let _ = std::fs::create_dir_all(&dir);
                 handle.plugin(
@@ -133,7 +134,10 @@ pub fn run() {
             if let Err(err) = tray::build(app) {
                 log::error!("failed to create system tray: {err}");
             } else {
-                log::info!("system tray ready (close_to_tray = {})", tray::close_to_tray_enabled(&handle));
+                log::info!(
+                    "system tray ready (close_to_tray = {})",
+                    tray::close_to_tray_enabled(&handle)
+                );
             }
 
             // 窗体尺寸持久化（AGENTS §14）：恢复上次 bounds，并监听变化保存。
@@ -164,30 +168,36 @@ pub fn run() {
             Ok(())
         })
         // 业务命令注册点（AGENTS §3 规约 5：前端一切系统操作经此）。
+        // ⚠️ 与前端 `src/core/shared/api/index.ts` 一一对应；命令名 = 路径末段。
         .invoke_handler(tauri::generate_handler![
-            commands::get_setting,
-            commands::set_setting,
-            commands::list_plugins,
-            commands::update_plugin,
-            commands::secure_set_setting,
-            commands::secure_get_setting,
-            commands::key_status,
-            commands::key_export_wbkey,
-            commands::key_import_wbkey,
-            commands::app_quit,
-            commands::app_hide_to_tray,
-            commands::storage::storage_info,
-            commands::storage::storage_set_dir,
-            commands::storage::storage_open_dir,
-            commands::backup::backup_create,
-            commands::backup::backup_list,
-            commands::backup::backup_delete,
-            commands::backup::backup_restore,
-            commands::backup::backup_open_dir,
-            commands::transfer::wbkey_inspect,
-            commands::transfer::import_inspect,
-            commands::transfer::import_precheck,
-            commands::transfer::import_adopt,
+            // 设置 / 插件 / 进程
+            wb_runtime::get_setting,
+            wb_runtime::set_setting,
+            wb_runtime::list_plugins,
+            wb_runtime::update_plugin,
+            // 敏感字段与密钥（设计文档 §8）
+            wb_runtime::secure_set_setting,
+            wb_runtime::secure_get_setting,
+            wb_runtime::key_status,
+            wb_runtime::key_export_wbkey,
+            wb_runtime::key_import_wbkey,
+            wb_runtime::app_quit,
+            wb_runtime::app_hide_to_tray,
+            // 数据目录（设计文档 §7.3）
+            wb_runtime::storage_info,
+            wb_runtime::storage_set_dir,
+            wb_runtime::storage_open_dir,
+            // 备份与恢复（§7.4）
+            wb_runtime::backup_create,
+            wb_runtime::backup_list,
+            wb_runtime::backup_delete,
+            wb_runtime::backup_restore,
+            wb_runtime::backup_open_dir,
+            // 跨机导入（§7.6）
+            wb_runtime::wbkey_inspect,
+            wb_runtime::import_inspect,
+            wb_runtime::import_precheck,
+            wb_runtime::import_adopt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

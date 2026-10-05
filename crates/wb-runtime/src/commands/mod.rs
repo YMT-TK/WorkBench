@@ -11,39 +11,17 @@
 // 错误统一以 String 返回（Result<T, String>），前端 try/catch 后 notify('error') + 写日志。
 
 pub mod backup;
-pub mod migrate;
 pub mod storage;
 pub mod transfer;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-use crate::db::DbState;
-
-/// 读取一个设置项（连接级；调用方自行持有锁）。
-/// ⚠️ 已持锁时**只能**调本函数，⛔ 不能再调命令层的 `get_setting`（会对自己重复加锁而死锁）。
-pub(crate) fn get_setting_conn(conn: &Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT value FROM app_settings WHERE key = ?1",
-        params![key],
-        |row| row.get::<_, String>(0),
-    )
-    .optional()
-    .map_err(|e| e.to_string())
-}
-
-/// 写入/更新一个设置项（连接级）。
-fn set_setting_conn(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO app_settings (key, value, updated_at)
-         VALUES (?1, ?2, strftime('%s', 'now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        params![key, value],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
+use wb_db::db::DbState;
+// 设置读写原语来自**数据层**：运行时的 `backup.rs` 也要用它，若留在命令层
+// 就形成「wb-runtime → 应用壳」的反向依赖（AGENTS §21.2）。
+use wb_db::settings::{get_setting_conn, set_setting_conn};
 
 /// 插件行（对应 plugins 表），字段名与前端 PluginState 对齐。
 #[derive(Serialize)]
