@@ -1,6 +1,6 @@
 [package]
 name = "workbench"
-version = "0.1.0"
+version = "0.1.1"
 description = "插件化桌面工作台 · 应用壳（平台能力见 crates/）"
 authors = ["YMT-TK"]
 edition = "2021"

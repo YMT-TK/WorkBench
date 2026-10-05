@@ -604,7 +604,7 @@ Tailwind 映射为 `shadow-card / shadow-card-hover / shadow-float`。⛔ 组件
 ### 10.1 安装包（NSIS）
 
 - **命令**：`CARGO_INCREMENTAL=0 npx tauri build`（先停 `dev:app`，避免抢 CPU）。
-- **产物**：`target/release/bundle/nsis/WorkBench_0.1.0_x64-setup.exe`（lzma，约 1.8 MB）；
+- **产物**：`target/release/bundle/nsis/WorkBench_0.1.1_x64-setup.exe`（lzma，约 1.8 MB）；
   exe 本体 `target/release/workbench.exe` 约 4.2 MB。
   ⚠️ workspace 化后两者都在**仓库根** `target/` 下（原为 `src-tauri/target/`，见 §3.4 / ADR-19）。
 - **`bundle.targets` 收敛为 `["nsis"]`**：MSI(WiX) 界面几乎无法定制，要出 MSI 时单独跑 `--bundles msi`。

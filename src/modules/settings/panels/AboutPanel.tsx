@@ -13,7 +13,7 @@ export function AboutPanel() {
         <img src="/app-icon.png" alt="" className="h-6 w-6 rounded-md" />
         <span>WorkBench · 桌面工作台</span>
       </div>
-      <div>版本 0.1.0</div>
+      <div>版本 0.1.1</div>
       <div>插件化架构：{archText || "—"}</div>
       <div className="pt-1 text-xs text-text-muted">
         命令面板 Ctrl+K · 数据存于本机 SQLite（单实例独占写） · 关闭默认收进系统托盘
