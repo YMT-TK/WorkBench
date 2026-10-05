@@ -121,7 +121,10 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 
 ## 5. 数据存储规约（SQLite）
 
-**文件位置**：默认 `app_data_dir\WorkBench\workbench.db`，可在「设置 → 数据」里改到任意绝对路径（§20）。
+**文件位置**：默认 `app_data_dir\WorkBench\workbench.db`，可在「设置 → 存储」里把**数据根目录**改到任意绝对路径（§20）。
+- 🔴 **用户唯一可配的是「根目录」**，其下按固定相对布局展开（设计文档 §7.1）：
+  `workbench.db` / `media/`（媒体） / `backup/`（备份） / `keys/`（密钥文件） / `logs/`（日志）。
+  ⛔ 子目录名与拼接只允许出现在 `src-tauri/src/storage.rs`，别处一律调 `db_path / media_dir / backup_dir / keys_dir / logs_dir`。
 - 默认：`app_data_dir\WorkBench\`
 - 可配置：引导文件 `app_data_dir\WorkBench\storage.json` 写 `{"dataDir": "D:\\..."}`；空/缺省 = 回到默认
 - 便携：检测到 exe 同目录 `portable/` 则用相对路径（**未实现**，后续迭代）
@@ -149,9 +152,27 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 - 导入式：复制到 `media/<module>/` 再存库（占用空间但完全托管）。
 
 **迁移 / 备份 / 导出**
-- 路径修改走「迁移向导」：**先复制+hash 校验 → 再重指向 → 最后才清旧**，任一环节失败回滚。
-- 一键备份：`workbench.db` + `media/` → 时间戳文件 `backup_20261004.db`。
-- 自动备份：可选「每次启动 / 每周」，保留最近 N 份。
+- 🔴 备份与迁移共用 `src-tauri/src/fsutil.rs` 的**带校验复制**：每个文件复制后回读比对 SHA-256，
+  不一致即删目标并报错；迁移还按「本次新建清单」整体回滚，且**不改写配置**（§20.2）。
+- 路径修改走「迁移向导」：**先复制 + hash 校验 → 再重指向 → 最后才清旧**，任一环节失败回滚。
+  ⛔ 必须连 `media/` 与 `keys/` 一起搬 —— 只搬主库会让媒体文件静默丢失。
+- 🔴 **目标目录里已有 `workbench.db` → 拒绝迁移**（ADR-18）：不搬文件、不建目录、不写 `storage.json`。
+  静默跳过会骗人（提示成功、重启后是目标里的旧库），覆盖可能毁掉目标那份。
+- 🔴 **别做「在新目录初始化空库」**：用户点「迁移」的语义是搬数据，悄悄初始化会让人以为数据丢了。
+- 一键备份：`<根目录>/backup/backup_<UTC时间戳>/` 目录快照 = `workbench.db` + `media/` + `manifest.json`。
+- 🔴 **备份包同时是跨机迁移载体**（公司电脑 → 家里笔记本），**不另造「导出包」概念**（ADR-14）。
+- 🔴 **备份包不含密钥**：manifest 只记 `SHA256(K)[0..8]` 指纹（明文、不敏感）；恢复前比对本机密钥，
+  不匹配**直接拒绝**并提示导入对应的 `.wbkey`。换机顺序固定：**先导入密钥 → 再恢复数据 → 重启**（ADR-14）。
+- 🔴 **换机走「跨机导入」向导**（设置 → 存储 → ④ 跨机导入，§7.6 / ADR-17）：把「备份包 + `.wbkey`」
+  一次选进来，顺序由程序强制。预检 `import_inspect` / `wbkey_inspect` / `import_precheck` **全是只读**，
+  指纹不符时磁盘零改动。判定 `replaces_local_key` 必须用户**勾选确认**才继续；
+  `key_import_wbkey` 的 `replace` 默认 false —— 普通导入入口**永不替换在用密钥**。
+- 🔴 恢复不直接覆盖运行中的库：写成 `workbench.db.restore-pending`，由启动早期
+  `db::apply_pending_restore` 在**没有任何连接时**先删 `-wal`/`-shm` 再换库（ADR-15）——
+  否则属于旧库的 WAL 被回放到换过的库上，就是库损坏。
+- 自动备份：`app_settings: backup.auto = off | on_start` + `backup.keep`（默认 5）；
+  启动时在后台线程执行并清理最老的（不持有数据库连接，§5.x）。
+- ⚠️ 备份默认**与数据同一块盘**（都在根目录下）：盘坏了会一起没。UI 必须提示用户把快照复制出去。
 - JSON 导出：核心表可导出 JSON，便于跨机/跨大版本迁移。
 
 ### 5.x 并发与锁（单边锁）
@@ -180,10 +201,22 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 
 威胁模型：个人单机工具，主要风险是「设备丢失/文件被拷走后泄露」，非多用户并发。
 
-- ✅ 默认**字段级加密（方案 A）**：仅敏感字段（会员密码、Git Token、API Key）做 AES-GCM，密钥存 OS 凭据库（`tauri-plugin-keyring`），可选主密码（Argon2/PBKDF2 派生）。
+- ✅ 默认**字段级加密（方案 A）**：仅敏感字段（会员密码、Git Token、API Key）做 AES-GCM，主密钥存 OS 凭据库（keyring `windows-native`）。
 - ✅ 音频/媒体文件**不加密**（体积大、无密级），不进 SQLite。
 - ⛔ **密钥只存 OS 钥匙串，绝不明文入库或写配置文件**。
-- ✅ 提供「导出密钥备份」引导，避免忘密导致数据死锁。
+- ⛔ **不提供主密钥明文导出**：导出只能是口令加密的 `.wbkey`（明文导出＝把锁和钥匙放同一个抽屉）。
+- ✅ **口令加密的可移植密钥文件 `.wbkey`**（设计文档 §8.4）：一个文件同时解决「凭据库失效时的冗余副本」与「公司电脑 → 个人笔记本的迁移载体」。口令经 Argon2id 派生 wrapping key，再 AES-256-GCM 封装主密钥；文件被拷走没口令也解不开。
+- 🔴 **密钥指纹防护（设计文档 §8.5）**：`app_settings: crypto.key_fingerprint = SHA256(K)[0..8]`。
+  三态判定在 `commands::resolve_key`（**唯一出处**）：
+  | 库中指纹 | 凭据库密钥 | 行为 |
+  |---|---|---|
+  | 无 | 无 | 首次运行；**写**敏感字段时才显式建钥（`create_and_store_key`），并落指纹 |
+  | 无 | 有 | 采用已有密钥并补记指纹 |
+  | 有 | 有且一致 | 放行 |
+  | 有 | 有但**不一致** | ⛔ 拒绝加解密，提示「密钥与数据不匹配，请导入密钥」 |
+  | 有 | **无** | ⛔ **拒绝静默生成新密钥**，提示「此数据来自另一台机器，请先导入密钥」 |
+  ⛔ `crypto` 只有 `load_key()`（只读）与 `create_and_store_key()`（显式创建）两条路径，
+  不再提供「看一眼就顺手创建」的接口 —— 否则换机会把已有密文全部作废。
 - 可选升级 **SQLCipher 整库加密（方案 B）**：仅当要求「db 拷走也打不开」时启用。
 
 ---
@@ -222,7 +255,10 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 
 - [x] 11. 数据中心模块（模块壳）：读注册表渲染 Widget；配置面板支持显示开关（`plugins.enabled`）、排序（布局引擎 `layout:data-center`，含隐藏项保留位置）、插件参数（`plugins.config` + `settingsSchema`）。见 §18.7。
 - [x] 12. 第一个 Widget（天气）：跑通「注册 → 渲染 → 开关/排序/参数持久化」闭环，验证插件模型。
-- [ ] 13. 设置模块：外观/数据/音频/隐私/关于 子菜单，全部绑定 `app_settings` + `settings.rs`（含迁移向导 §6.3、备份 §6.4）。
+- [ ] 13. 设置模块：外观/通用/存储（数据位置 + 密钥与安全 + 备份与恢复 + 运行日志）/音频/模块/关于 子菜单，全部绑定 `app_settings` + 命令层（含迁移向导 §7.3、备份 §7.4）。
+  **已完成**：子页骨架、隐私→存储合并、密钥可移植化（`.wbkey` + 指纹）、数据根目录 + 固定相对布局、
+  一键/自动备份 + 恢复（manifest 记指纹、恢复前校验）、迁移向导 hash 校验（连 `media/`+`keys/` 一起搬）、
+  运行日志位置提示；**待做**：音频页。
 - [ ] 14. 项目管理模块（`proj_` 表 + git 命令）。
 - [ ] 15. 音频管理模块（`audio_` 表 + ffmpeg sidecar）。
 - [ ] 16. 其余 Widget（会员账户 / 还款提醒 / 待办）按需补充。
@@ -276,7 +312,8 @@ binaries/ffmpeg.exe     # sidecar 随包分发
 - **分层日志**：
   - **前端运行时**：React `ErrorBoundary` 兜底渲染，避免整页白屏；未捕获异常归集到日志服务。
   - **Rust 侧**：用 `log` + `tauri-plugin-log`（或 env_logger），按 `error/warn/info/debug` 写入 `data/logs/`（位置见设计文档 9.4）。
-  - **操作日志（用户可见）**：在「设置 → 高级 → 操作日志」呈现关键操作流水（增删改、迁移、备份），与调试日志**分离存储/呈现**。
+  - **日志位置（用户可见）**：设置 → 存储 →「运行日志」给出 `<根目录>/logs` 的绝对路径、已有文件列表与「打开目录」按钮；文件由 `tauri-plugin-log` 写入，当前 `workbench.log`，超过 5MB 滚动为 `workbench_<YYYY-MM-DD_HH-MM-SS>.log`（**按生成时间保存**），保留最近 10 份。
+    🔴 **不建用户可见的操作日志页面、也不加「高级」子页**（ADR-16）：日志本身就是给人排查用的文件，把地址给出来、让人自己打开看即可 —— 再造一个页面等于把日志文件重抄一遍到 UI 里。
 - **日志规约**：
   - 文件按日 / 大小滚动（`workbench-YYYYMMDD.log`），保留最近 N 份，避免无限膨胀；
   - 记录要素：时间戳、级别、模块/命令、消息、必要上下文；
@@ -482,7 +519,7 @@ release 构建不编译该代码。
 
 | 位置 | 来源 |
 |---|---|
-| `%APPDATA%\com.workbench.app\WorkBench\logs\workbench.log` | `TargetKind::Folder`（我们的目录，含**前端**日志） |
+| `<数据根目录>\logs\workbench.log`（默认即 `%APPDATA%\com.workbench.app\WorkBench\logs\`） | `TargetKind::Folder`（我们的目录，含**前端**日志） |
 | `%LOCALAPPDATA%\com.workbench.app\logs\WorkBench.log` | 插件默认的 OS 日志目录（仅 Rust 侧） |
 
 前端日志会被标记来源，形如 `[webview::safeInfo@http://127.0.0.1:5173/src/...:12:10][INFO] ...`。
@@ -507,13 +544,35 @@ release 构建不编译该代码。
 WB_E2E=1 npm run dev > .workbuddy/e2e.log 2>&1 &
 # 2) 另起 Tauri，跳过 beforeDevCommand，复用上面已就绪的 Vite
 npx tauri dev --config '{"build":{"beforeDevCommand":""}}' > .workbuddy/tauri-dev.log 2>&1 &
-# 3) 读结果
-grep -oE '__e2e\?[^ ]*' .workbuddy/e2e.log | tail -1
+# 3) 读结果 —— 别手工 grep 分块，用现成解析器
+python scripts/probe-report.py .workbuddy/e2e.log
 ```
 
-覆盖：侧边栏分组/入口、顶部栏、Ctrl+K 唤起+过滤+回车跳转、**设置页开关 → 侧边栏实时联动**、主题快切。
-探针只在 dev 阶段按 `WB_E2E=1` 注入，**不进生产构建**，也不改动 `src/`；跑完会自动复原它改过的设置
-（如 `hidden_modules`）。新增交互请在该文件补断言。
+覆盖：侧边栏分组/入口、顶部栏、Ctrl+K 唤起+过滤+回车跳转、**设置页开关 → 侧边栏实时联动**、主题快切、
+设置-存储页（根目录 + 固定相对布局 + 密钥状态与导出/导入入口 + 真点一次「立即备份」并清理）、
+跨机导入向导（入口 / 弹窗骨架 / 可关闭 / 三个只读命令已注册）、迁移拒绝规则文案。探针只在 dev 阶段按 `WB_E2E=1` 注入，
+**不进生产构建**，也不改动 `src/`；跑完会自动复原它改过的设置（如 `hidden_modules`）。新增交互请在该文件补断言。
+
+🔴 **报告是分块上报的**：断言一多，整包 `encodeURIComponent` 塞进查询串会超过 Node 的请求头上限，
+服务端直接回 **HTTP 431**，表现为「探针一条都没回报」。因此报告按 800 个**码点**切片，
+每块单独 `encodeURIComponent`，发成 `/__e2e?c=<i>/<n>&d=<片段>`。
+
+- ⛔ **必须切「原始 JSON」再逐块编码**。反过来（先编码再切片）会让某块以半个 `%E5` 结尾，
+  Vite 内部 `decodeURI(req.url)` 抛 `Internal server error: URI malformed`，
+  日志里一片 500 —— 数据其实没丢，但排查时极具误导性。
+- 切码点（`Array.from`）而不是 `slice`，是为了不劈开代理对（emoji 会劈成孤立代理，`encodeURIComponent` 直接抛）。
+- 解析：**用 `scripts/probe-report.py`**（把各块 `unquote` 后按序拼接再一次性 `json.loads`，
+  顺带列出失败明细与全部断言清单）。手工 grep 只会看到一堆 `%E4`，且很容易把「缺块」误读成「通过」。
+  该脚本会显式报出**缺失的块号**——缺块时拿到的 JSON 一定是残的，绝不能当结论。
+  多个 `c=1/n` 轮次只取**最后一轮**（整页重载会重跑）。
+
+> ⚠️ 探针脚本改完不会触发 HMR（它是经 `transformIndexHtml` 注入的，不在模块图里）。
+> 想立刻重跑可以 `touch index.html` 触发整页重载 —— 但**别在刚改过 `src/` 之后立刻这么干**：
+> 整页重载撞上 Vite 的模块失效窗口，可能出现「模块注册表少一个模块」的连锁假失败
+> （表现为侧边栏少项 + 设置页整页空白，实际代码没问题）。要结论可信就**重启 `dev:app`**。
+
+> ⚠️ 探针开头以「数据中心配置按钮出现」判定**应用挂载完成**，而不是只等 `<nav>` 存在：
+> `<nav>` 可能在模块注册表就绪前就渲染出来，早读一次会让后面几十条断言连锁假失败。
 
 ### 17.8 坑：改 `vite.config.ts` 会触发批量删除保护
 
@@ -657,23 +716,45 @@ useHeaderActions(actions); // 渲染到 TopBar 右侧，模块卸载时自动清
 ## 20. 数据目录与存储位置【设计文档未覆盖，本仓库补充】
 
 > 「我的数据库到底存在哪？能不能放到 D 盘？」——必须有明确的、可改的答案。
+> 🔴 完整的存储与目录模型见**设计文档 §7**（本文只记本仓库的落地约定）。
 
 实现：`src-tauri/src/storage.rs`（路径解析）+ `src-tauri/src/commands/storage.rs`（命令层）。
+
+### 20.1 根目录 + 固定相对布局
+
+**用户唯一可配项 = 数据根目录**；其下一切按固定相对路径展开（设计文档 §7.1）：
+
+```
+<数据根目录>/
+├─ workbench.db      # 主库
+├─ media/            # 媒体文件（导入式；引用式只存外部路径）
+├─ backup/           # 备份产物
+├─ keys/             # 密钥用户侧文件（.wbkey / 导出备份）
+└─ logs/             # 运行日志
+```
+
+- ⛔ 子目录名与拼接**只允许出现在 `storage.rs`**：`db_path / logs_dir / keys_dir / backup_dir / media_dir / media_module_dir`。
+  别处一律调这些函数，不许手拼 `root.join("media")`。
+- 子目录**按需惰性创建**（第一次用到才 `create_dir_all`），不在启动时铺一堆空目录。
+- 子目录结构**不可自定义** —— 这正是「只改一个地方」的代价与收益。
+
+### 20.2 行为约定
 
 - **默认目录**：`app_data_dir()/WorkBench`（Windows 即 `%APPDATA%/com.workbench.app/WorkBench`）。
 - **引导配置**：`<默认目录>/storage.json`，形如 `{ "dataDir": "D:\\WorkBenchData" }`；
   空串 / 缺省 / 文件损坏 → 回落默认目录。
 - 🔴 **引导文件必须留在默认目录**，不能跟着自定义目录走：否则用户一改路径，下次启动就找不到这份配置，
   等于失去了回退能力（这正是「配置指向自己」的经典死锁）。
-- **生效时机**：改目录**重启后生效**。数据库连接在 `setup` 阶段就打开了，无法热切换；
+- **生效时机**：改目录**重启后生效**（数据库连接与日志目录都在 `setup` 阶段就定下了，无法热切换）。
   命令返回后设置页用 `pendingDir != runningDir` 判定并提示「需重启」。
 - **搬迁策略**（`storage_set_dir(dir, migrate)`）：先 `PRAGMA wal_checkpoint(TRUNCATE)` 把 WAL 归并进主库，
   再复制 `.db` / `-wal` / `-shm` 三件套。⛔ **只复制不删除**，旧目录原样保留，用户可自行清理或回退；
   ⛔ 目标已存在同名库时**跳过复制**（覆盖 = 不可逆数据毁坏）。
 - **可写性预检**：写 `storage.json` 之前先建目录并写一个探针文件验证可写，
   失败立刻报错，别等重启后才发现写不进去。
-- **命令**：`storage_info`（目录/文件/大小/是否自定义/待生效目录）、`storage_set_dir`、`storage_open_dir`。
-  打开目录走 `explorer` / `open` / `xdg-open`，不引额外插件。
+- **命令**：
+  - `storage_info` —— 根目录 / 主库路径与大小 / 是否自定义 / 待生效目录 / **固定子目录清单（含占用）**；
+  - `storage_set_dir`、`storage_open_dir`（打开目录走 `explorer` / `open` / `xdg-open`，不引额外插件）。
 - ⚠️ `app_settings` 里的 `db_path` 不再使用（历史写法）；路径的**唯一来源**是 `storage.json`，
   避免两处配置互相打架。
-- 🟡 待办：便携模式（exe 同级 `portable/`）、一键备份（`db` + `-wal` + `-shm` 打时间戳包）。
+- 🟡 待办：便携模式（exe 同级 `portable/`）、一键/自动备份（用 `storage::backup_dir`）。
