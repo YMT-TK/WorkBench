@@ -29,6 +29,12 @@ aes-gcm = "0.10"
 base64 = "0.22"
 # Windows 使用凭据管理器（windows-native）；不启用服务端 secret-service 等无关后端。
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# 密钥可移植化（设计文档 §8.4）：口令派生用 Argon2id；密钥指纹用 SHA-256。
+argon2 = "0.5"
+sha2 = "0.10"
+# 系统文件对话框（设计文档 §7.6）：跨机导入要选「备份包目录 + .wbkey」，
+# 从 U 盘/下载目录里挑文件时手输路径太容易错。仅用到 open（选文件/选目录）。
+tauri-plugin-dialog = "2"
 
 [lib]
 name = "workbench_lib"

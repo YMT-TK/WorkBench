@@ -1,10 +1,13 @@
 // WorkBench 桌面应用入口（Tauri 2）。
 // 「系统级」底座：单实例保护、系统托盘、窗体尺寸持久化、日志、数据库连接、插件注册。
 
+mod backup;
 mod commands;
 mod crypto;
 mod db;
+mod fsutil;
 mod storage;
+mod transfer;
 mod tray;
 mod window_state;
 
@@ -21,12 +24,10 @@ struct SecondaryInstancePayload {
     cwd: String,
 }
 
-/// 解析日志目录：app_data_dir/WorkBench/logs（AGENTS §11 / 设计文档 9.4）。
+/// 解析日志目录：`<数据根目录>/logs`（设计文档 §7.5）。
+/// 🔴 跟随用户自定义的数据根目录 —— 此前固定在 `app_data_dir`，与其余内容不一致。
 fn log_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join("WorkBench").join("logs"))
+    crate::storage::logs_dir(app).ok()
 }
 
 /// 安装崩溃兜底：panic 时写独立 `crash-*.log`，便于下次启动提示上报（AGENTS §11）。
@@ -92,6 +93,9 @@ pub fn run() {
                 SecondaryInstancePayload { args: argv, cwd },
             );
         }))
+        // 系统文件对话框（设计文档 §7.6）：跨机导入要选「备份包目录 + .wbkey」，
+        // 从 U 盘 / 下载目录里挑文件时手输路径太容易错。
+        .plugin(tauri_plugin_dialog::init())
         // 系统级初始化。
         .setup(|app| {
             let handle = app.app_handle().clone();
@@ -118,6 +122,10 @@ pub fn run() {
             }
 
             db::init(app).expect("failed to initialize database");
+
+            // 自动备份（设置项 `backup.auto = on_start`）：后台线程跑，不拖慢启动。
+            // 放在 db 初始化之后 —— 此时库文件已就位，快照才有内容。
+            backup::run_auto_if_enabled(&handle);
 
             // 系统托盘 +「关闭到托盘」（AGENTS §19）：
             // 顶栏 X 默认只把窗口收进托盘，真正退出只留在托盘右键菜单里，避免误点丢工作现场。
@@ -163,12 +171,23 @@ pub fn run() {
             commands::update_plugin,
             commands::secure_set_setting,
             commands::secure_get_setting,
-            commands::export_master_key,
+            commands::key_status,
+            commands::key_export_wbkey,
+            commands::key_import_wbkey,
             commands::app_quit,
             commands::app_hide_to_tray,
             commands::storage::storage_info,
             commands::storage::storage_set_dir,
             commands::storage::storage_open_dir,
+            commands::backup::backup_create,
+            commands::backup::backup_list,
+            commands::backup::backup_delete,
+            commands::backup::backup_restore,
+            commands::backup::backup_open_dir,
+            commands::transfer::wbkey_inspect,
+            commands::transfer::import_inspect,
+            commands::transfer::import_precheck,
+            commands::transfer::import_adopt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
