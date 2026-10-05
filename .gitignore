@@ -1,40 +1,78 @@
-# Logs
-logs
-*.log
-data/logs/
+# ============================================================
+# WorkBench 忽略规则
+#
+# 原则：仓库只放「源码 + 构建必需的资源 + 锁文件」。
+#       生成物 / 依赖 / 本机数据 / 密钥 / 编辑器残留 一律不入库。
+#
+# 🔴 两份锁文件（Cargo.lock / package-lock.json）**必须提交** ——
+#    这是应用（不是库），锁文件才保证换机器能装出同一套依赖。别把它们加进来。
+# ============================================================
 
-# Dependencies
+# ---------- 依赖与构建产物 ----------
 node_modules/
-
-# Python 脚本缓存（scripts/ 下的辅助工具）
-__pycache__/
-*.pyc
-
-# Build output
 dist/
+# 🔴 workspace 化后产物落在**仓库根** target/（见根 Cargo.toml）。
+#    只写 src-tauri/target/ 会让根 target/ 变成未跟踪状态（900+ MB）。
+/target/
 src-tauri/target/
-
-# Tauri generated
+# Tauri 构建期自动生成的 schema / capability 产物
 src-tauri/gen/
 
-# Local data (never commit user data)
+# ---------- 日志 ----------
+logs
+*.log
+
+# ---------- 本机数据 ----------
+# 正常情况数据根目录在系统 app_data_dir，与仓库无关；
+# 这一组是**防线**：万一把数据根目录设进了仓库，也不会把用户数据提交上去。
+# 用前导 `/` 只匹配仓库根，避免误伤源码里同名的子目录。
+/workbench.db
+/workbench.db-wal
+/workbench.db-shm
+/backup/
+/keys/
+/media/
+/logs/
+/data/
+# 全局兜底：无论放在哪一级都不入库
 *.db
 *.db-wal
 *.db-shm
-media/
-backups/
-data/exports/
+# 🔴 密钥与备份快照，绝不入库
+*.wbkey
+/prerestore_*/
+/backup_*/
 
-# Editor
+# ---------- 环境变量 ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Python 脚本缓存（scripts/ 下的辅助工具）----------
+__pycache__/
+*.pyc
+
+# ---------- Vite 临时快照（加载 config 时产生，非源码）----------
+*.timestamp-*
+
+# ---------- 编辑器 ----------
 .vscode/
 .idea/
+.history/
+*.swp
+*.swo
+*~
 
-# OS
+# ---------- OS ----------
 .DS_Store
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-# Vite 配置临时快照（vite 加载 config 时产生，非源码）
-vite.config.ts.timestamp-*
+# ---------- 版本控制残留（merge / rebase 失败产物）----------
+*.orig
+*.rej
+*.rs.bk
 
-# WorkBuddy 工作区数据（本机日志 / 探针输出 / 图标备份 / 本地记忆，不入库）
+# ---------- WorkBuddy 工作区数据（本机日志 / 探针输出 / 图标备份 / 本地记忆）----------
 .workbuddy/
