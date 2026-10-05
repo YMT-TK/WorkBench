@@ -4,6 +4,16 @@ import path from "node:path";
 import fs from "node:fs";
 
 /**
+ * 版本号单一来源（AGENTS §21.7）。
+ * 前端⛔ 不硬编码版本号 —— 从 package.json 读，经 define 注入为编译期常量 `__APP_VERSION__`。
+ * 升级时只跑 `npm version patch|minor`，不必记得同步 N 处（设置页「关于」也会跟着变）。
+ * 类型声明在 `src/vite-env.d.ts`。
+ */
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")) as {
+  version: string;
+};
+
+/**
  * dev 期请求日志（仅开发用）：把 webview 实际请求的路径打到终端。
  * 真机排障关键——能区分「窗口白屏（webview 根本没请求）」与「前端已加载但 IPC 被拒」。
  */
@@ -45,6 +55,10 @@ function devE2eProbe() {
 // @tauri-apps/cli 会把 dev 时的前端挂到 http://127.0.0.1:5173
 export default defineConfig({
   plugins: [react(), devRequestLogger(), devE2eProbe()],
+  // 版本号单一来源：见文件头 `pkg`（AGENTS §21.7）
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
